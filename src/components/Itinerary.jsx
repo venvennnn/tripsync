@@ -90,7 +90,7 @@ export function EventCard({ event, room, dragging, onDragStart, onLock, onDelete
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-wide text-mist">
               {event.block} · {formatRange(event.start, event.end, room.timezone)}
-              {event.locked ? " · locked" : ""}
+              {event.locked ? " · pinned" : ""}
               {walk ? " · walking tour" : ""}
             </div>
             <h4 className="font-display text-xl leading-tight">{event.title}</h4>
@@ -144,8 +144,13 @@ export function EventCard({ event, room, dragging, onDragStart, onLock, onDelete
         <p className="text-ember text-sm mt-2">This slot conflicts with someone’s arrival or departure.</p>
       )}
       <div className="flex flex-wrap gap-2 mt-3">
-        <button type="button" className="text-xs rounded-full px-2 py-1 bg-stone-100" onClick={() => onLock(event)}>
-          {event.locked ? "Unlock" : "Lock"}
+        <button
+          type="button"
+          className={`text-xs rounded-full px-2 py-1 ${event.locked ? "bg-gold text-white" : "bg-stone-100"}`}
+          onClick={() => onLock(event)}
+          title={event.locked ? "Re-Optimize will keep this slot" : "Pin so Re-Optimize never moves this"}
+        >
+          {event.locked ? "Unpin" : "Pin (keep)"}
         </button>
         <button
           type="button"
@@ -172,6 +177,83 @@ export function EventCard({ event, room, dragging, onDragStart, onLock, onDelete
         />
       )}
     </article>
+  );
+}
+
+function SlotComposer({ day, block, onAddSlot }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [maps, setMaps] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const name = title.trim();
+    if (!name || busy) return;
+    setBusy(true);
+    try {
+      await onAddSlot?.({ date: day, block: block.id, title: name, maps_url: maps.trim() });
+      setTitle("");
+      setMaps("");
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="w-full text-left text-xs text-mist px-2 py-1.5 rounded-lg hover:bg-white"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        Click to add · or drop
+      </button>
+    );
+  }
+
+  return (
+    <form className="space-y-1 p-1" onSubmit={submit} onClick={(e) => e.stopPropagation()}>
+      <input
+        autoFocus
+        className="w-full rounded-lg border border-stone-300 px-2 py-1 text-xs outline-none focus:border-gold"
+        placeholder="Place name"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        required
+      />
+      <input
+        className="w-full rounded-lg border border-stone-300 px-2 py-1 text-xs outline-none focus:border-gold"
+        placeholder="Google Maps link (optional)"
+        value={maps}
+        onChange={(e) => setMaps(e.target.value)}
+      />
+      <div className="flex gap-1">
+        <button
+          type="submit"
+          disabled={busy || !title.trim()}
+          className="text-[11px] bg-gold text-white rounded-full px-2 py-0.5 font-semibold disabled:opacity-50"
+        >
+          {busy ? "Pinning…" : "Pin here"}
+        </button>
+        <button
+          type="button"
+          className="text-[11px] text-mist"
+          onClick={() => {
+            setOpen(false);
+            setTitle("");
+            setMaps("");
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -205,6 +287,7 @@ export function ItineraryPanel({
   onMove,
   onRegenerate,
   onRegenerateDay,
+  onAddSlot,
 }) {
   const tz = room.timezone;
   const events = [...(room.events || [])].sort((a, b) => new Date(a.start) - new Date(b.start));
@@ -218,20 +301,22 @@ export function ItineraryPanel({
     if (event) onMove(event, date, block);
   }
 
-  if (!events.length) {
-    return (
-      <div className="text-sm text-mist py-8 text-center">
-        No itinerary yet. Add wishes, then hit <span className="text-gold">Re-Optimize Trip</span>.
-      </div>
-    );
-  }
-
   if (view === "calendar") {
     const days = tripDays(room);
     const boardDays = days.length ? days : [...new Set(events.map((e) => isoDay(e.start, tz)))];
+    if (!boardDays.length) {
+      return (
+        <div className="text-sm text-mist py-8 text-center">
+          Add travelers so we know the dates, then click a slot to pin a stop.
+        </div>
+      );
+    }
     return (
       <div>
-        <p className="text-xs text-mist mb-2">Drag a stop onto a slot. Dropping on a filled slot swaps them.</p>
+        <p className="text-xs text-mist mb-2">
+          Evening sits before dinner. Click an empty slot to pin a place (Maps link welcome). Pinned stops stay put on
+          Re-Optimize.
+        </p>
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
           {boardDays.map((day) => (
             <div key={day} className="rounded-2xl bg-stone-50 p-3 border border-stone-200">
@@ -247,7 +332,9 @@ export function ItineraryPanel({
                   const isOver = over?.day === day && over?.block === b.id;
                   return (
                     <div key={b.id} className="text-xs">
-                      <div className="text-mist mb-0.5">{b.label}</div>
+                      <div className="text-mist mb-0.5">
+                        {b.label} · {b.start}–{b.end}
+                      </div>
                       <DropSlot
                         day={day}
                         block={b}
@@ -258,21 +345,37 @@ export function ItineraryPanel({
                         onDragOver={(d, blockId) => setOver({ day: d, block: blockId })}
                       >
                         {ev ? (
-                          <button
-                            type="button"
-                            draggable={!ev.locked}
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData("text/event-id", ev.id);
-                              setDragging(ev.id);
-                            }}
-                            className="w-full text-left px-2 py-1 rounded-lg bg-white border border-stone-200"
+                          <div
+                            className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${
+                              ev.locked ? "border-gold/50 bg-teal-50" : "border-stone-200 bg-white"
+                            }`}
                           >
-                            <span className="drag-handle mr-1 text-mist">⋮⋮</span>
-                            {ev.title}
-                            {ev.kind === "walking_tour" ? " 🚶" : ""}
-                          </button>
+                            <button
+                              type="button"
+                              draggable={!ev.locked}
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData("text/event-id", ev.id);
+                                setDragging(ev.id);
+                              }}
+                              className="flex-1 text-left min-w-0"
+                            >
+                              {!ev.locked && <span className="drag-handle mr-1 text-mist">⋮⋮</span>}
+                              <span className="truncate">{ev.title}</span>
+                              {ev.kind === "walking_tour" ? " 🚶" : ""}
+                            </button>
+                            <button
+                              type="button"
+                              className={`shrink-0 text-[10px] rounded-full px-1.5 py-0.5 ${
+                                ev.locked ? "bg-gold text-white" : "bg-stone-100"
+                              }`}
+                              title={ev.locked ? "Unpin so it can move" : "Pin — Re-Optimize will not move this"}
+                              onClick={() => onLock(ev)}
+                            >
+                              {ev.locked ? "Pinned" : "Pin"}
+                            </button>
+                          </div>
                         ) : (
-                          <div className="text-mist px-2 py-1">Drop here</div>
+                          <SlotComposer day={day} block={b} onAddSlot={onAddSlot} />
                         )}
                       </DropSlot>
                     </div>
@@ -287,6 +390,13 @@ export function ItineraryPanel({
   }
 
   if (view === "map") {
+    if (!events.length) {
+      return (
+        <div className="text-sm text-mist py-8 text-center">
+          No stops yet. Open Calendar, click a slot, and paste a Maps link to drop a pin.
+        </div>
+      );
+    }
     return (
       <div>
         <GoogleMapView events={events} wishlist={room.wishlist} mapsKey={mapsKey} />
@@ -318,10 +428,21 @@ export function ItineraryPanel({
   }
   const days = tripDays(room);
   const showDays = days.length ? days : [...grouped.keys()];
+  if (!showDays.length) {
+    return (
+      <div className="text-sm text-mist py-8 text-center">
+        No itinerary yet. Switch to Calendar and click a slot, or add wishes and hit{" "}
+        <span className="text-gold">Re-Optimize Trip</span>.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
-      <p className="text-xs text-mist">Drag the ⋮⋮ handle onto another day or time slot. Nearby stops stay clustered after Re-Optimize.</p>
+      <p className="text-xs text-mist">
+        Evening is before dinner. Drag ⋮⋮ to move, or click an empty slot to pin a place. Pinned stops stay put on
+        Re-Optimize.
+      </p>
       {showDays.map((day) => {
         const list = grouped.get(day) || [];
         return (
@@ -359,8 +480,11 @@ export function ItineraryPanel({
                         onRegenerate={onRegenerate}
                       />
                     ) : (
-                      <div className="text-xs text-mist px-3 py-2">
-                        {b.label} — drop a stop here
+                      <div className="px-1 py-1">
+                        <div className="text-[11px] text-mist px-2">
+                          {b.label} · {b.start}–{b.end}
+                        </div>
+                        <SlotComposer day={day} block={b} onAddSlot={onAddSlot} />
                       </div>
                     )}
                   </DropSlot>
