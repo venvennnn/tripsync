@@ -33,6 +33,18 @@ export function extractIntent(rawText, typeHint = "") {
   const lower = text.toLowerCase();
   const maps = /(google\.com\/maps|maps\.app\.goo\.gl|maps\.google)/i.test(text);
   const clusters = clusterIdsForText(text);
+  const walkRe = /\b(walk(?:ing)? tour|stroll|wander from|walk from)\b/i;
+
+  if (typeHint === "walk" || walkRe.test(text)) {
+    return {
+      type: "walk",
+      query: text,
+      intent: "walking session between nearby places",
+      preferred_time: /morning/.test(lower) ? "morning" : /afternoon/.test(lower) ? "afternoon" : "evening",
+      group_activity: true,
+      clusters: [...new Set(["walk", ...clusters])],
+    };
+  }
 
   if (typeHint === "hipster" || HIPSTER_RE.test(text)) {
     const cat =

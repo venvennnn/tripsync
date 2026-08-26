@@ -4,12 +4,15 @@ import { generateRoomCode, normalizeCode } from "./codes.js";
 import { assignAvatar } from "./avatars.js";
 import { extractMapsUrl, parseMapsCoords, scrapeMapsHtml, unwrapMapsContinueUrl, mapsPlaceQuery } from "./places.js";
 import { extractIntent, detectGroupMatches } from "./intent.js";
+import { pushVersion, restoreVersion } from "./versions.js";
 import {
   participantPresent,
   fullGroupWindow,
   scheduleItinerary,
   detectConflicts,
   enforceHardConstraints,
+  moveEventToBlock,
+  isoDay,
 } from "./engine.js";
 
 const venmani = {
@@ -163,6 +166,11 @@ describe("maps links", () => {
 });
 
 describe("intent", () => {
+  it("classifies a walking tour request", () => {
+    const walk = extractIntent("walking tour from Petaling Street to Zhongshan in the evening", "walk");
+    assert.equal(walk.type, "walk");
+  });
+
   it("classifies hipster places separately from generic cuisine", () => {
     const hip = extractIntent("hidden speakeasy with natural wine", "hipster");
     assert.equal(hip.type, "hipster");
@@ -274,6 +282,67 @@ describe("scheduler", () => {
     assert.match(spot.venue.name, /Zhongshan/i);
   });
 
+  it("packs nearby Chinatown stops onto the same day", () => {
+    const result = scheduleItinerary(
+      baseRoom({
+        wishlist: [
+          {
+            id: "w_z",
+            created_by: "p1",
+            title: "Zhongshan Building",
+            type: "hipster",
+            query: "Zhongshan Building",
+            priority: "would_love",
+            preferred_time: "afternoon",
+            participants_interested: ["p1"],
+            hipster_category: "design_market",
+          },
+          {
+            id: "w_p",
+            created_by: "p1",
+            title: "PS150",
+            type: "hipster",
+            query: "PS150",
+            priority: "would_love",
+            preferred_time: "evening",
+            participants_interested: ["p1"],
+            hipster_category: "speakeasy",
+          },
+        ],
+      }),
+    );
+    const z = result.events.find((e) => e.wishlist_id === "w_z");
+    const p = result.events.find((e) => e.wishlist_id === "w_p");
+    assert.ok(z && p);
+    assert.equal(z.start.slice(0, 10), p.start.slice(0, 10));
+  });
+
+  it("schedules a walking tour in the evening session", () => {
+    const result = scheduleItinerary(
+      baseRoom({
+        wishlist: [
+          {
+            id: "w_walk",
+            created_by: "p1",
+            title: "Chinatown evening wander",
+            type: "walk",
+            query: "walk from Petaling Street to Zhongshan",
+            priority: "must_do",
+            preferred_time: "evening",
+            participants_interested: ["p1", "p2", "p3"],
+            walk_from: { title: "Petaling Street", lat: 3.1438, lng: 101.6969 },
+            walk_to: { title: "Zhongshan Building", lat: 3.1372, lng: 101.6955 },
+          },
+        ],
+      }),
+    );
+    const ev = result.events.find((e) => e.wishlist_id === "w_walk");
+    assert.ok(ev);
+    assert.equal(ev.block, "evening");
+    assert.equal(ev.kind, "walking_tour");
+    assert.equal(ev.stops.length, 2);
+  });
+
   it("drops AI proposals that violate arrival windows", () => {
     const proposed = [
       {
@@ -288,5 +357,27 @@ describe("scheduler", () => {
     const { events, dropped } = enforceHardConstraints(baseRoom(), proposed);
     assert.equal(events.length, 0);
     assert.equal(dropped.length, 1);
+  });
+});
+
+describe("move and versions", () => {
+  it("moves a stop onto an empty block", () => {
+    const scheduled = scheduleItinerary(baseRoom());
+    const book = scheduled.events.find((e) => e.wishlist_id === "w3");
+    assert.ok(book);
+    const room = { ...baseRoom(), events: scheduled.events };
+    const day = isoDay(book.start, room.timezone);
+    const moved = moveEventToBlock(room, book.id, day, "breakfast");
+    assert.equal(moved.error, undefined);
+    const next = moved.room.events.find((e) => e.id === book.id);
+    assert.equal(next.block, "breakfast");
+  });
+
+  it("reloads a saved plan", () => {
+    const a = scheduleItinerary(baseRoom());
+    const saved = pushVersion({ ...baseRoom(), events: a.events }, { label: "First pass" });
+    const wiped = { ...saved, events: [] };
+    const out = restoreVersion(wiped, saved.versions[0].id);
+    assert.equal(out.room.events.length, a.events.length);
   });
 });

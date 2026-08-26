@@ -85,7 +85,7 @@ text: ${JSON.stringify(text)}
 
 Return JSON:
 {
-  "type": "venue|cuisine|natural|hipster|activity",
+  "type": "venue|cuisine|natural|hipster|walk|activity",
   "query": "string",
   "intent": "string",
   "hipster_category": "string|null",
@@ -106,6 +106,8 @@ export async function geminiSchedule(apiKey, promptPayload) {
 The JavaScript engine already computed availability windows. Trust those windows. Do not invent dates outside them.
 Do not modify locked events.
 Prefer catalog venues supplied per wish.
+Cluster nearby venues onto the same day and adjacent blocks (walking-distance first).
+Walking-tour wishes (type=walk) should occupy afternoon or evening as a session, using walk_from → walk_via → walk_to order.
 
 INPUT:
 ${JSON.stringify(promptPayload, null, 2)}

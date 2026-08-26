@@ -1,6 +1,14 @@
 import { makeId } from "./ids.js";
 import { detectGroupMatches, clusterIdsForText, extractIntent } from "./intent.js";
-import { estimateTravelMinutes, venuesForWish, parseMapsCoords } from "./places.js";
+import {
+  estimateTravelMinutes,
+  estimateWalkMinutes,
+  haversineKm,
+  parseMapsCoords,
+  proximityBonus,
+  venuesForWish,
+  WALK_KM,
+} from "./places.js";
 
 export const BLOCKS = [
   { id: "breakfast", label: "Breakfast", start: "08:00", end: "09:30", meal: true, food: ["breakfast", "coffee", "cafe"] },
@@ -93,10 +101,14 @@ export function overlapAt(participants, start, end) {
 }
 
 function preferredBlock(wish) {
+  if (isWalkWish(wish) && (!wish.preferred_time || wish.preferred_time === "any")) {
+    return BLOCKS.find((b) => b.id === "evening") || BLOCKS.at(-1);
+  }
   if (wish.preferred_time && wish.preferred_time !== "any") {
     return BLOCKS.find((b) => b.id === wish.preferred_time) || null;
   }
   const blob = `${wish.title} ${wish.query} ${wish.intent} ${(wish.clusters || []).join(" ")}`.toLowerCase();
+  if (/walk|stroll|wander/.test(blob)) return BLOCKS.find((b) => b.id === "evening");
   if (/coffee|cafe|breakfast/.test(blob)) return BLOCKS.find((b) => b.id === "breakfast") || BLOCKS[0];
   if (/lunch/.test(blob) || wish.type === "cuisine") return BLOCKS.find((b) => b.id === "lunch");
   if (/dinner|mala|hotpot/.test(blob)) return BLOCKS.find((b) => b.id === "dinner");
@@ -106,9 +118,35 @@ function preferredBlock(wish) {
 }
 
 function isMealWish(wish) {
+  if (isWalkWish(wish)) return false;
   return wish.type === "cuisine" || /food|eat|lunch|dinner|breakfast|rice|curry|pasta|coffee/.test(
     `${wish.title} ${wish.query}`.toLowerCase(),
   );
+}
+
+export function isWalkWish(wish) {
+  return wish?.type === "walk" || wish?.kind === "walking_tour";
+}
+
+export function walkStopsFor(wish) {
+  const stops = [];
+  const push = (s) => {
+    if (!s) return;
+    const title = s.title || s.name;
+    if (!title && !s.maps_url && s.lat == null && s.lng == null) return;
+    stops.push({
+      name: title || "Stop",
+      title: title || "Stop",
+      address: s.address || "",
+      maps_url: s.maps_url || null,
+      lat: s.lat ?? null,
+      lng: s.lng ?? null,
+    });
+  };
+  push(wish.walk_from);
+  for (const s of wish.walk_via || []) push(s);
+  push(wish.walk_to);
+  return stops;
 }
 
 function interestedIds(wish) {
@@ -179,6 +217,19 @@ export function detectConflicts(room) {
 }
 
 function venueFor(wish, room) {
+  if (isWalkWish(wish)) {
+    const stops = walkStopsFor(wish);
+    const pinned = stops.find((s) => s.lat != null && s.lng != null) || stops[0];
+    if (pinned) {
+      return {
+        name: pinned.name,
+        address: pinned.address || "",
+        maps_url: pinned.maps_url || wish.maps_url || null,
+        lat: pinned.lat ?? null,
+        lng: pinned.lng ?? null,
+      };
+    }
+  }
   if (wish.venue?.lat != null && wish.venue?.lng != null) return wish.venue;
   const parsed = parseMapsCoords(wish.maps_url);
   const ownLat = wish.lat ?? wish.venue?.lat ?? parsed?.lat ?? null;
@@ -236,6 +287,7 @@ function explain(wish, slot, present, room, groupWindow) {
     bits.push(`${names.join(", ") || "the interested travelers"} can make it`);
   }
   if (wish.group_match) bits.push("this looks like a group match across wishlists");
+  if (isWalkWish(wish)) bits.push("it is a walking session from one pin to the next");
   if (slot.block.meal && isMealWish(wish)) bits.push(`${slot.block.label.toLowerCase()} is the right meal window`);
   if (groupWindow && asDate(slot.start) >= groupWindow.start && asDate(slot.end) <= groupWindow.end && wish.group_match) {
     bits.push("it sits inside the full-group overlap");
@@ -266,7 +318,27 @@ function listCandidateSlots(room, occupied, scope) {
   return slots;
 }
 
-function scoreSlot(wish, slot, room, groupWindow, previousVenue) {
+function dayVenues(events, day) {
+  return (events || [])
+    .filter((e) => e.start && e.start.slice(0, 10) === day)
+    .flatMap((e) => (e.stops?.length ? e.stops : [e.venue]))
+    .filter((v) => v?.lat != null && v?.lng != null);
+}
+
+function sessionPackBonus(slot, venue, events) {
+  const sameDay = (events || []).filter((e) => e.start && e.start.slice(0, 10) === slot.day);
+  if (!sameDay.length) return 0;
+  const idx = BLOCKS.findIndex((b) => b.id === slot.block.id);
+  const neighborIds = [BLOCKS[idx - 1]?.id, BLOCKS[idx + 1]?.id].filter(Boolean);
+  const neighbors = sameDay.filter((e) => neighborIds.includes(e.block));
+  const neighborVenues = neighbors.flatMap((e) => (e.stops?.length ? e.stops : [e.venue]));
+  const nearSession = proximityBonus(venue, neighborVenues);
+  if (nearSession >= 34) return 22;
+  if (nearSession >= 16) return 10;
+  return 0;
+}
+
+function scoreSlot(wish, slot, room, groupWindow, previousVenue, dayEvents = []) {
   const present = presentParticipants(room.participants, slot.start, slot.end);
   if (!allInterestedPresent(wish, present)) return { score: -Infinity, present };
 
@@ -296,10 +368,14 @@ function scoreSlot(wish, slot, room, groupWindow, previousVenue) {
   if (!isMealWish(wish) && wish.type === "hipster" && ["morning", "afternoon", "evening"].includes(slot.block.id)) {
     score += 12;
   }
+  if (isWalkWish(wish) && ["afternoon", "evening"].includes(slot.block.id)) score += 14;
 
   const venue = venueFor(wish, room);
   const travel = estimateTravelMinutes(previousVenue, venue);
   if (travel != null) score -= Math.min(30, travel / 2);
+  const others = [...dayVenues(dayEvents, slot.day), previousVenue].filter(Boolean);
+  score += proximityBonus(venue, others);
+  score += sessionPackBonus(slot, venue, dayEvents);
 
   return { score, present, travel, venue, inGroup };
 }
@@ -375,6 +451,9 @@ export function scheduleItinerary(room, options = {}) {
       const pa = PRIORITY_RANK[a.priority] || 0;
       const pb = PRIORITY_RANK[b.priority] || 0;
       if (pb !== pa) return pb - pa;
+      const wa = isWalkWish(a) ? 2 : 0;
+      const wb = isWalkWish(b) ? 2 : 0;
+      if (wb !== wa) return wb - wa;
       const ia = interestedIds(a).length + (a.group_match ? 3 : 0);
       const ib = interestedIds(b).length + (b.group_match ? 3 : 0);
       return ib - ia;
@@ -391,8 +470,9 @@ export function scheduleItinerary(room, options = {}) {
     );
     let best = null;
     for (const slot of slots) {
-      const prev = previousVenueForDay([...preserved, ...created], slot.day, slot.start);
-      const scored = scoreSlot(wish, slot, room, groupWindow, prev);
+      const placed = [...preserved, ...created];
+      const prev = previousVenueForDay(placed, slot.day, slot.start);
+      const scored = scoreSlot(wish, slot, room, groupWindow, prev, placed);
       if (!best || scored.score > best.scored.score) best = { slot, scored };
     }
     if (!best || best.scored.score === -Infinity) {
@@ -404,6 +484,7 @@ export function scheduleItinerary(room, options = {}) {
       continue;
     }
 
+    const stops = isWalkWish(wish) ? walkStopsFor(wish) : [];
     const event = {
       id: makeId("e"),
       wishlist_id: wish.id,
@@ -419,6 +500,13 @@ export function scheduleItinerary(room, options = {}) {
       group_match: Boolean(wish.group_match),
       priority: wish.priority,
       created_by: wish.created_by,
+      kind: isWalkWish(wish) ? "walking_tour" : "stop",
+      stops,
+      session: isWalkWish(wish)
+        ? `${best.slot.block.label} walk`
+        : proximityBonus(best.scored.venue, dayVenues([...preserved, ...created], best.slot.day)) >= 16
+          ? `${best.slot.day} cluster`
+          : null,
     };
     created.push(event);
     occupied.add(best.slot.key);
@@ -436,12 +524,9 @@ export function scheduleItinerary(room, options = {}) {
   events = events.map((event, i) => {
     const prev = events[i - 1];
     if (!prev || isoDay(prev.start, tz) !== isoDay(event.start, tz)) {
-      return { ...event, travel_from_previous_min: null };
+      return { ...event, travel_from_previous_min: null, travel_from_previous: null };
     }
-    return {
-      ...event,
-      travel_from_previous_min: estimateTravelMinutes(prev.venue, event.venue),
-    };
+    return { ...event, ...travelBetween(prev, event) };
   });
 
   const { events: safeEvents, dropped } = enforceHardConstraints(room, events);
@@ -479,6 +564,12 @@ function buildSummary(room, events, changes, matches, groupWindow) {
     );
   }
   if (skipped) lines.push(`${skipped} wish${skipped === 1 ? "" : "es"} could not fit without breaking availability.`);
+  const walkCount = events.filter((e) => e.kind === "walking_tour").length;
+  if (walkCount) lines.push(`${walkCount} walking ${walkCount === 1 ? "session" : "sessions"} placed.`);
+  const clusteredDays = new Set(
+    events.filter((e) => e.session && e.kind !== "walking_tour").map((e) => e.start?.slice(0, 10)),
+  );
+  if (clusteredDays.size) lines.push(`Nearby stops were packed onto ${clusteredDays.size} day${clusteredDays.size === 1 ? "" : "s"}.`);
   const lockedCount = (room.events || []).filter((e) => e.locked).length;
   if (lockedCount) lines.push(`Kept ${lockedCount} locked ${lockedCount === 1 ? "event" : "events"} untouched.`);
   return {
@@ -541,6 +632,8 @@ export function applyAiSchedule(room, payload) {
       group_match: Boolean(wish.group_match),
       priority: wish.priority,
       created_by: wish.created_by,
+      kind: isWalkWish(wish) ? "walking_tour" : "stop",
+      stops: isWalkWish(wish) ? walkStopsFor(wish) : [],
     };
     created.push(event);
     occupied.add(key);
@@ -564,6 +657,66 @@ export function applyAiSchedule(room, payload) {
 
 export function interpretWish(text, typeHint) {
   return extractIntent(text, typeHint);
+}
+
+function travelBetween(prev, event) {
+  const from = prev.stops?.length ? prev.stops.at(-1) : prev.venue;
+  const to = event.stops?.length ? event.stops[0] : event.venue;
+  const km = haversineKm(from, to);
+  const drive = estimateTravelMinutes(from, to);
+  if (drive == null) return { travel_from_previous_min: null, travel_from_previous: null };
+  const walk = km != null && km <= WALK_KM;
+  const walkMin = estimateWalkMinutes(from, to);
+  return {
+    travel_from_previous_min: walk ? walkMin : drive,
+    travel_from_previous: {
+      minutes: walk ? walkMin : drive,
+      meters: km != null ? Math.round(km * 1000) : null,
+      text: walk
+        ? `${walkMin} min walk · ${km.toFixed(1)} km`
+        : `${drive} min from previous stop`,
+      source: walk ? "walk" : "estimate",
+    },
+  };
+}
+
+export function slotTimes(date, blockId, timeZone) {
+  const block = BLOCKS.find((b) => b.id === blockId) || BLOCKS[2];
+  return {
+    block: block.id,
+    start: combineLocal(date, block.start, timeZone).toISOString(),
+    end: combineLocal(date, block.end, timeZone).toISOString(),
+  };
+}
+
+export function moveEventToBlock(room, eventId, date, blockId) {
+  const tz = room.timezone || "Asia/Kuala_Lumpur";
+  const times = slotTimes(date, blockId, tz);
+  const target = (room.events || []).find((e) => e.id === eventId);
+  if (!target) return { room, error: "Event not found." };
+  if (target.locked) return { room, error: "Unlock this stop before moving it." };
+  const occupant = (room.events || []).find(
+    (e) => e.id !== eventId && e.block === times.block && isoDay(e.start, tz) === date,
+  );
+  if (occupant?.locked) return { room, error: `${occupant.title} is locked in that slot.` };
+
+  let events = (room.events || []).map((e) => {
+    if (e.id === eventId) return { ...e, ...times };
+    if (occupant && e.id === occupant.id) {
+      return { ...e, start: target.start, end: target.end, block: target.block };
+    }
+    return e;
+  });
+  events.sort((a, b) => asDate(a.start) - asDate(b.start));
+  events = events.map((event, i) => {
+    const prev = events[i - 1];
+    if (!prev || isoDay(prev.start, tz) !== isoDay(event.start, tz)) {
+      return { ...event, travel_from_previous_min: null, travel_from_previous: null };
+    }
+    return { ...event, ...travelBetween(prev, event) };
+  });
+  const next = { ...room, events };
+  return { room: next, conflicts: detectConflicts(next), swapped: Boolean(occupant) };
 }
 
 export function presenceByDay(room) {

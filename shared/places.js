@@ -350,8 +350,33 @@ export function haversineKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(s1 + s2));
 }
 
+export function estimateWalkMinutes(from, to) {
+  const km = haversineKm(from, to);
+  if (km == null) return null;
+  return Math.max(4, Math.round((km / 4.6) * 60));
+}
+
 export function estimateTravelMinutes(from, to) {
   const km = haversineKm(from, to);
   if (km == null) return null;
   return Math.max(8, Math.round((km / 22) * 60 + 6));
+}
+
+/** Same-session walk (~15–18 min) vs same-neighborhood vs crosstown. */
+export const WALK_KM = 1.4;
+export const NEIGHBORHOOD_KM = 4.2;
+
+export function proximityBonus(venue, others = []) {
+  if (!venue || venue.lat == null || !others.length) return 0;
+  let bestKm = Infinity;
+  for (const o of others) {
+    const km = haversineKm(venue, o);
+    if (km == null) continue;
+    if (km < bestKm) bestKm = km;
+  }
+  if (!Number.isFinite(bestKm)) return 0;
+  if (bestKm <= WALK_KM) return 34;
+  if (bestKm <= NEIGHBORHOOD_KM) return 16;
+  if (bestKm >= 14) return -14;
+  return 0;
 }
