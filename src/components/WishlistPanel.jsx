@@ -13,7 +13,7 @@ const TYPES = [
   { id: "hipster", label: "Hipster" },
 ];
 
-export function WishlistPanel({ room, you, onAdd, onHeart, onDelete }) {
+export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("cuisine");
   const [form, setForm] = useState({
@@ -66,9 +66,15 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete }) {
         <button
           type="button"
           className="text-sm bg-gold text-ink font-bold rounded-full px-3 py-1"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            if (!you) {
+              onNeedYou?.();
+              return;
+            }
+            setOpen((v) => !v);
+          }}
         >
-          {open ? "Close" : "+ Add"}
+          {open ? "Close" : you ? "+ Add" : "Join to add"}
         </button>
       </div>
 
@@ -79,6 +85,10 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete }) {
             type="button"
             className="text-[11px] rounded-full px-2 py-1 bg-paper/10 hover:bg-gold/20"
             onClick={() => {
+              if (!you) {
+                onNeedYou?.();
+                return;
+              }
               setTab("hipster");
               setForm((f) => ({ ...f, hipster_category: c.id, title: c.label }));
               setOpen(true);

@@ -184,6 +184,29 @@ describe("scheduler", () => {
     assert.equal(kept.locked, true);
   });
 
+  it("maps a named hipster venue to that place, not the first café in the catalog", () => {
+    const result = scheduleItinerary(
+      baseRoom({
+        wishlist: [
+          {
+            id: "w_z",
+            created_by: "p1",
+            title: "Zhongshan Building",
+            type: "hipster",
+            query: "Zhongshan Building",
+            priority: "nice_to_have",
+            preferred_time: "afternoon",
+            participants_interested: ["p1"],
+            hipster_category: "design_market",
+          },
+        ],
+      }),
+    );
+    const spot = result.events.find((e) => e.wishlist_id === "w_z");
+    assert.ok(spot);
+    assert.match(spot.venue.name, /Zhongshan/i);
+  });
+
   it("drops AI proposals that violate arrival windows", () => {
     const proposed = [
       {

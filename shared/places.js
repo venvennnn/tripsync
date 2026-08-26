@@ -217,17 +217,24 @@ export function parseMapsCoords(url) {
 }
 
 export function venuesForWish(wish, baseLocation = null) {
+  const title = String(wish.title || "").toLowerCase();
   const q = `${wish.query || ""} ${wish.title || ""} ${wish.intent || ""}`.toLowerCase();
   const cityHint = `${baseLocation?.name || ""} ${baseLocation?.address || ""}`.toLowerCase();
   const inKL = /kuala|lumpur|petaling|selangor|kl\b|bangsar|pj\b/.test(cityHint) || !cityHint.trim();
+  const pool = HIPSTER_CATALOG.filter((v) => inKL || v.city !== "Kuala Lumpur");
 
-  return HIPSTER_CATALOG.filter((v) => {
-    if (!inKL && v.city === "Kuala Lumpur") return false;
-    if (wish.type === "hipster") {
-      return v.tags.includes("hipster") || v.category === wish.hipster_category;
-    }
-    return v.tags.some((t) => q.includes(t)) || q.includes(v.name.toLowerCase());
-  }).slice(0, 5);
+  const named = pool.filter(
+    (v) => (title && v.name.toLowerCase().includes(title)) || q.includes(v.name.toLowerCase()),
+  );
+  if (named.length) return named.slice(0, 5);
+
+  if (wish.type === "hipster") {
+    const byCat = pool.filter((v) => v.category === wish.hipster_category);
+    const hip = pool.filter((v) => v.tags.includes("hipster"));
+    return (byCat.length ? byCat : hip).slice(0, 5);
+  }
+
+  return pool.filter((v) => v.tags.some((t) => q.includes(t))).slice(0, 5);
 }
 
 export function haversineKm(a, b) {

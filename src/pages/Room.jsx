@@ -239,6 +239,11 @@ export function Room() {
               {you ? "Switch / update me" : "I am joining"}
             </button>
           </div>
+          {!you && (
+            <p className="text-sm text-gold mb-3">
+              You unlocked the trip. Tap your mascot to act as them, or join as someone new before adding wishes.
+            </p>
+          )}
           <div className="flex gap-4 overflow-x-auto pb-2">
             {room.participants.map((p) => (
               <button
@@ -300,6 +305,10 @@ export function Room() {
             <WishlistPanel
               room={room}
               you={you}
+              onNeedYou={() => {
+                setJoinOpen(true);
+                toast("Who is adding this?", "Join or tap your mascot first.");
+              }}
               onAdd={async (payload) => {
                 if (!you) {
                   setJoinOpen(true);
