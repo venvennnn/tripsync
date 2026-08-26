@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { generateRoomCode, normalizeCode } from "./codes.js";
 import { assignAvatar } from "./avatars.js";
+import { extractMapsUrl, parseMapsCoords, scrapeMapsHtml, unwrapMapsContinueUrl, mapsPlaceQuery } from "./places.js";
 import { extractIntent, detectGroupMatches } from "./intent.js";
 import {
   participantPresent,
@@ -93,6 +94,71 @@ describe("avatars", () => {
     const b = assignAvatar("Venmani", "KL-FOOD-SQUAD-2026");
     assert.equal(a.id, b.id);
     assert.ok(a.initials);
+  });
+});
+
+describe("maps links", () => {
+  it("reads coordinates from common Google Maps URL shapes", () => {
+    assert.deepEqual(
+      parseMapsCoords(
+        "https://www.google.com/maps/place/Target/@33.8000241,-118.1239713,15z/data=!4m6!3m5!1s0x0!8m2!3d33.7978736!4d-118.1226002",
+      ),
+      { lat: 33.7978736, lng: -118.1226002 },
+    );
+    assert.deepEqual(parseMapsCoords("https://www.google.com/maps/place/Foo/@3.1415,101.6869,17z"), {
+      lat: 3.1415,
+      lng: 101.6869,
+    });
+    assert.deepEqual(parseMapsCoords("https://maps.google.com/?q=3.1306,101.6728"), {
+      lat: 3.1306,
+      lng: 101.6728,
+    });
+    assert.deepEqual(parseMapsCoords("https://www.google.com/maps/place/Foo/data=!3m1!4b1!4m6!3m5!1s0x0!8m2!3d3.1578!4d101.7123"), {
+      lat: 3.1578,
+      lng: 101.7123,
+    });
+    assert.equal(
+      extractMapsUrl("try this https://maps.app.goo.gl/abcd please"),
+      "https://maps.app.goo.gl/abcd",
+    );
+    assert.deepEqual(
+      scrapeMapsHtml('window.APP_INITIALIZATION_STATE=[[[null,null,3.1491,101.7134]]]'),
+      { lat: 3.1491, lng: 101.7134 },
+    );
+    assert.equal(
+      unwrapMapsContinueUrl(
+        "https://consent.google.com/ml?continue=https://www.google.com/maps/place/Foo/@3.1415,101.6869,17z",
+      ),
+      "https://www.google.com/maps/place/Foo/@3.1415,101.6869,17z",
+    );
+    assert.equal(
+      mapsPlaceQuery("https://www.google.com/maps/search/?api=1&query=VCR+Cafe+Bangsar"),
+      "VCR Cafe Bangsar",
+    );
+  });
+
+  it("pins a scheduled stop from a Maps URL even without a catalog match", () => {
+    const result = scheduleItinerary(
+      baseRoom({
+        wishlist: [
+          {
+            id: "w_map",
+            created_by: "p1",
+            title: "Custom cafe",
+            type: "venue",
+            query: "Custom cafe",
+            maps_url: "https://www.google.com/maps/place/Foo/@3.1415,101.6869,17z",
+            priority: "must_do",
+            preferred_time: "morning",
+            participants_interested: ["p1"],
+          },
+        ],
+      }),
+    );
+    const ev = result.events.find((e) => e.wishlist_id === "w_map");
+    assert.ok(ev);
+    assert.equal(ev.venue.lat, 3.1415);
+    assert.equal(ev.venue.lng, 101.6869);
   });
 });
 

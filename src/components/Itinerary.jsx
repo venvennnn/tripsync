@@ -155,16 +155,19 @@ export function ItineraryPanel({ room, view, mapsKey, onLock, onDelete, onSave, 
   }
 
   if (view === "map") {
-    const pinned = events.filter((e) => e.venue?.lat != null && e.venue?.lng != null);
     return (
       <div>
-        <GoogleMapView events={events} mapsKey={mapsKey} />
+        <GoogleMapView events={events} wishlist={room.wishlist} mapsKey={mapsKey} />
         <ol className="mt-3 space-y-1 text-sm">
-          {pinned.map((e, i) => (
+          {events.map((e, i) => (
             <li key={e.id}>
-              {i + 1}. {e.venue.name}{" "}
+              {i + 1}. {e.venue?.name || e.title}{" "}
               <span className="text-mist">
-                {e.travel_from_previous?.text ? `· ${e.travel_from_previous.text}` : ""}
+                {e.venue?.lat == null
+                  ? "· no pin yet"
+                  : e.travel_from_previous?.text
+                    ? `· ${e.travel_from_previous.text}`
+                    : ""}
               </span>
             </li>
           ))}

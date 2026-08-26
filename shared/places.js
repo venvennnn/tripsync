@@ -207,13 +207,115 @@ export const HIPSTER_CATALOG = [
   },
 ];
 
-export function parseMapsCoords(url) {
-  if (!url) return null;
-  const at = String(url).match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (at) return { lat: Number(at[1]), lng: Number(at[2]) };
-  const q = String(url).match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (q) return { lat: Number(q[1]), lng: Number(q[2]) };
+function validCoords(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
+}
+
+function matchCoords(s, swapped = false) {
+  const m = s;
+  if (!m) return null;
+  const lat = Number(swapped ? m[2] : m[1]);
+  const lng = Number(swapped ? m[1] : m[2]);
+  return validCoords(lat, lng) ? { lat, lng } : null;
+}
+
+function normalizeMapsText(input) {
+  return String(input || "")
+    .replace(/\\u003d/gi, "=")
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u002f/gi, "/")
+    .replace(/&amp;/g, "&")
+    .replace(/%40/g, "@")
+    .replace(/%2C/gi, ",");
+}
+
+export function parseMapsCoords(input) {
+  if (!input) return null;
+  const variants = [String(input), normalizeMapsText(input)];
+  try {
+    variants.push(decodeURIComponent(normalizeMapsText(input)));
+  } catch {
+    /* keep raw */
+  }
+  const patterns = [
+    { re: /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/ },
+    { re: /!8m2!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/ },
+    { re: /@(-?\d+\.\d+),(-?\d+\.\d+)/ },
+    { re: /[?&](?:q|query|ll|center|sll)=(-?\d+\.\d+),(-?\d+\.\d+)/ },
+    { re: /\/(?:search|dir)\/(-?\d+\.\d+),\s*(-?\d+\.\d+)/ },
+    { re: /destination=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i },
+    { re: /\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]/ },
+    { re: /"location"\s*:\s*\{\s*"lat"\s*:\s*(-?\d+\.\d+)\s*,\s*"lng"\s*:\s*(-?\d+\.\d+)/ },
+    { re: /!2d(-?\d+\.\d+)!3d(-?\d+\.\d+)/, swapped: true },
+  ];
+  for (const text of variants) {
+    for (const { re, swapped } of patterns) {
+      const m = text.match(re);
+      const hit = matchCoords(m, swapped);
+      if (hit) return hit;
+    }
+  }
   return null;
+}
+
+export function scrapeMapsHtml(html) {
+  if (!html) return null;
+  return parseMapsCoords(html) || parseMapsCoords(normalizeMapsText(html));
+}
+
+export function unwrapMapsContinueUrl(url) {
+  try {
+    const u = new URL(url);
+    for (const key of ["continue", "continueUrl", "url"]) {
+      const v = u.searchParams.get(key);
+      if (v && /^https?:/i.test(v)) return v;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export function extractHtmlRedirect(html) {
+  if (!html) return null;
+  const text = normalizeMapsText(html);
+  const patterns = [
+    /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i,
+    /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i,
+    /property=["']og:url["'][^>]+content=["']([^"']+)["']/i,
+    /content=["']([^"']+)["'][^>]+property=["']og:url["']/i,
+    /http-equiv=["']refresh["'][^>]+content=["'][^"']*url=([^"']+)["']/i,
+    /window\.location(?:\.replace|\s*=)\s*\(?['"]([^'"]+)['"]/i,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m?.[1] && /^https?:/i.test(m[1])) return m[1];
+  }
+  return unwrapMapsContinueUrl(text.match(/https?:\/\/consent\.google\.com[^"' <]+/i)?.[0] || "") || null;
+}
+
+export function mapsPlaceQuery(url) {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    const q = u.searchParams.get("q") || u.searchParams.get("query") || u.searchParams.get("destination");
+    if (q && !/^-?\d+\.\d+\s*,/.test(q)) return q.replace(/\+/g, " ").trim();
+    const m = u.pathname.match(/\/(?:place|search)\/([^/@]+)/);
+    if (m) {
+      const name = decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
+      if (name && !/^-?\d+\.\d+/.test(name)) return name;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export function extractMapsUrl(text) {
+  const m = String(text || "").match(
+    /https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|share\.google|(?:www\.)?(?:google\.com\/maps|maps\.google(?:\.com)?))[^\s<>"']*/i,
+  );
+  return m ? m[0].replace(/[),.;]+$/, "") : null;
 }
 
 export function venuesForWish(wish, baseLocation = null) {
