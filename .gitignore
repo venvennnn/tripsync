@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.vercel
 data/*.json
 .env
 .DS_Store

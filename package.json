@@ -2,7 +2,7 @@
   "name": "tripsync",
   "version": "0.1.0",
   "private": true,
-  "description": "TripSync / PokePlan — collaborative AI trip planner for mixed-availability groups",
+  "description": "TripSync — collaborative AI trip planner for mixed-availability groups",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n api,web -c cyan,magenta \"node server/index.js\" \"vite\"",

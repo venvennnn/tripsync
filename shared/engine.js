@@ -180,6 +180,17 @@ export function detectConflicts(room) {
 
 function venueFor(wish, room) {
   if (wish.venue) return wish.venue;
+  const candidate = wish.candidate_venues?.[0];
+  if (candidate?.name) {
+    return {
+      name: candidate.name,
+      address: candidate.address || "",
+      maps_url: candidate.maps_url || null,
+      lat: candidate.lat ?? null,
+      lng: candidate.lng ?? null,
+      vibe: candidate.vibe || "",
+    };
+  }
   const parsed = parseMapsCoords(wish.maps_url);
   if (wish.maps_url && (wish.address || parsed)) {
     return {
@@ -445,9 +456,9 @@ function buildSummary(room, events, changes, matches, groupWindow) {
   if (placed) lines.push(`${placed} itinerary ${placed === 1 ? "stop" : "stops"} placed.`);
   if (matches.length) {
     lines.push(
-      `SUPER EFFECTIVE! ${matches.length} group ${matches.length === 1 ? "match" : "matches"}: ${matches
+      `Group match: ${matches.length} shared ${matches.length === 1 ? "theme" : "themes"} (${matches
         .map((m) => m.label)
-        .join(", ")}.`,
+        .join(", ")}).`,
     );
   }
   if (groupWindow) {
@@ -459,7 +470,7 @@ function buildSummary(room, events, changes, matches, groupWindow) {
   const lockedCount = (room.events || []).filter((e) => e.locked).length;
   if (lockedCount) lines.push(`Kept ${lockedCount} locked ${lockedCount === 1 ? "event" : "events"} untouched.`);
   return {
-    headline: placed ? "Trip optimized! ✨" : "No movable events yet",
+    headline: placed ? "Trip optimized" : "No movable events yet",
     lines,
     change_count: placed,
     events_count: events.length,
@@ -530,7 +541,7 @@ export function applyAiSchedule(room, payload) {
     events: safe.events,
     changes,
     summary: {
-      headline: "Trip optimized! ✨",
+      headline: "Trip optimized",
       lines: changes.map((c) => c.reason).filter(Boolean).slice(0, 6),
       change_count: changes.length,
       events_count: safe.events.length,

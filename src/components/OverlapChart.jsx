@@ -1,5 +1,5 @@
 import { compactDay } from "../lib/format.js";
-import { MascotSprite } from "./Mascot.jsx";
+import { Avatar } from "./Avatar.jsx";
 
 export function OverlapChart({ room }) {
   const presence = room.presence;
@@ -23,17 +23,12 @@ export function OverlapChart({ room }) {
           {rows.map((row) => (
             <div key={row.id} className="contents">
               <div className="flex items-center gap-2 pr-2">
-                <MascotSprite mascot={row.avatar} size={28} />
+                <Avatar avatar={row.avatar} name={row.name} size={28} />
                 <span className="text-sm truncate">{row.name}</span>
               </div>
               {row.cells.map((on, i) => (
-                <div key={i} className="h-7 rounded-md overflow-hidden bg-paper/5">
-                  {on && (
-                    <div
-                      className="bar-fill h-full"
-                      style={{ color: row.avatar?.color || "#f0c94a" }}
-                    />
-                  )}
+                <div key={i} className="h-7 rounded-md overflow-hidden bg-stone-100">
+                  {on && <div className="bar-fill h-full" style={{ color: row.avatar?.color || "#0f766e" }} />}
                 </div>
               ))}
             </div>
@@ -43,18 +38,17 @@ export function OverlapChart({ room }) {
             <div
               key={i}
               className={`h-6 rounded-md grid place-items-center text-[11px] ${
-                on ? "bg-gold text-ink font-bold" : "bg-paper/5 text-mist"
+                on ? "bg-gold text-white font-bold" : "bg-stone-100 text-mist"
               }`}
             >
-              {on ? "★" : "·"}
+              {on ? "●" : "·"}
             </div>
           ))}
         </div>
         {fullStart >= 0 && (
           <p className="text-sm text-gold mt-3">
             Full-group window: {compactDay(days[fullStart])}
-            {fullEnd !== fullStart ? ` → ${compactDay(days[fullEnd])}` : ""}. High-value shared
-            plans belong here.
+            {fullEnd !== fullStart ? ` → ${compactDay(days[fullEnd])}` : ""}. Shared plans belong here.
           </p>
         )}
       </div>
