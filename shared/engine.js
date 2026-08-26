@@ -707,6 +707,7 @@ export function distanceHint(room, event, date, blockId) {
   const days = span ? eachDay(span.start, span.end, tz) : [];
   const alternatives = [];
   for (const day of days) {
+    if (day === date) continue;
     const dayEvents = (room.events || []).filter((e) => e.id !== event.id && e.start && isoDay(e.start, tz) === day);
     const venues = dayEvents.map(eventVenue).filter((v) => v?.lat != null);
     if (!venues.length) continue;

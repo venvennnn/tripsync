@@ -7,6 +7,7 @@ import { OverlapChart } from "../components/OverlapChart.jsx";
 import { WishlistPanel } from "../components/WishlistPanel.jsx";
 import { ItineraryPanel } from "../components/Itinerary.jsx";
 import { ToastHost } from "../components/ToastHost.jsx";
+import { BLOCKS } from "../../shared/engine.js";
 
 const inputCls =
   "w-full rounded-xl bg-white border border-stone-300 px-3 py-2 text-ink outline-none focus:border-gold";
@@ -408,7 +409,7 @@ export function Room() {
                       toast("That's a long hop", res.hint.warning, {
                         action: alt
                           ? {
-                              label: `Try ${alt.block} on ${alt.date} instead`,
+                              label: `Try ${BLOCKS.find((b) => b.id === alt.block)?.label || alt.block} on ${formatDay(`${alt.date}T12:00:00`, room.timezone)} instead`,
                               onClick: async () => {
                                 try {
                                   const next = await api.moveEvent(room.code, event.id, {
