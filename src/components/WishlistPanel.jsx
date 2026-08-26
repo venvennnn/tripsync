@@ -13,9 +13,10 @@ const TYPES = [
   { id: "hipster", label: "Hipster" },
 ];
 
-export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }) {
+export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou, onAttachMaps }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("cuisine");
+  const [linkDrafts, setLinkDrafts] = useState({});
   const [form, setForm] = useState({
     title: "",
     maps_url: "",
@@ -142,10 +143,10 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }
             value={form.title}
             onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
           />
-          {(tab === "venue" || tab === "hipster") && (
+          {(tab === "venue" || tab === "hipster" || tab === "cuisine" || tab === "natural") && (
             <input
               className={inputCls}
-              placeholder="Optional Google Maps link"
+              placeholder="Google Maps share link (maps.app.goo.gl is fine)"
               value={form.maps_url}
               onChange={(e) => setForm((f) => ({ ...f, maps_url: e.target.value }))}
             />
@@ -233,6 +234,37 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }
                   </span>
                 ))}
               </div>
+              {w.maps_url ? (
+                <a
+                  className="text-[11px] text-gold underline mt-1 inline-block"
+                  href={w.maps_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {w.lat != null ? "Pinned on map" : "Maps link saved — Re-Optimize to drop the pin"}
+                </a>
+              ) : you ? (
+                <form
+                  className="mt-2 flex gap-1"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const url = (linkDrafts[w.id] || "").trim();
+                    if (!url) return;
+                    onAttachMaps?.(w.id, url);
+                    setLinkDrafts((d) => ({ ...d, [w.id]: "" }));
+                  }}
+                >
+                  <input
+                    className="flex-1 rounded-lg bg-white border border-stone-300 px-2 py-1 text-xs"
+                    placeholder="Paste Maps share link"
+                    value={linkDrafts[w.id] || ""}
+                    onChange={(e) => setLinkDrafts((d) => ({ ...d, [w.id]: e.target.value }))}
+                  />
+                  <button type="submit" className="text-[11px] bg-ink text-white rounded-full px-2">
+                    Pin
+                  </button>
+                </form>
+              ) : null}
             </li>
           );
         })}

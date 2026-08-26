@@ -2,6 +2,7 @@ import { assignAvatar } from "../shared/avatars.js";
 import { generateRoomCode, normalizeCode } from "../shared/codes.js";
 import { makeId } from "../shared/ids.js";
 import { extractIntent } from "../shared/intent.js";
+import { extractMapsUrl, parseMapsCoords } from "../shared/places.js";
 
 export const DEMO_CODE = "KL-FOOD-SQUAD-2026";
 
@@ -63,6 +64,11 @@ export function addParticipant(room, profile) {
 
 export function addWish(room, payload, actorId) {
   const intent = extractIntent(payload.query || payload.title, payload.type);
+  const maps_url =
+    extractMapsUrl(payload.maps_url) ||
+    payload.maps_url ||
+    extractMapsUrl(`${payload.title || ""} ${payload.query || ""}`);
+  const parsed = parseMapsCoords(maps_url);
   const wish = {
     id: makeId("w"),
     created_by: actorId,
@@ -74,10 +80,10 @@ export function addWish(room, payload, actorId) {
     preferred_time: payload.preferred_time || "any",
     participants_interested: payload.participants_interested || [actorId],
     required_participants: payload.required_participants || [],
-    maps_url: payload.maps_url || null,
+    maps_url: maps_url || null,
     address: payload.address || "",
-    lat: payload.lat ?? null,
-    lng: payload.lng ?? null,
+    lat: payload.lat ?? parsed?.lat ?? null,
+    lng: payload.lng ?? parsed?.lng ?? null,
     hipster_category: payload.hipster_category || intent.hipster_category || null,
     clusters: intent.clusters || [],
     group_activity: intent.group_activity,

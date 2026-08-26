@@ -17,11 +17,14 @@ import {
   interpretWish,
   isoDay,
 } from "../shared/engine.js";
+import { extractMapsUrl } from "../shared/places.js";
 import {
   mapsEnabled,
   enrichBaseLocation,
   enrichWishVenues,
   attachTravelTimes,
+  pinFromWish,
+  ensureEventCoords,
 } from "./maps.js";
 import { geminiInterpret, geminiSchedule, getGeminiKey } from "./gemini.js";
 
@@ -218,9 +221,28 @@ export function createApp() {
       const room = await requireRoom(req, res);
       if (!room) return;
       const actor = req.body.created_by || room.participants[0]?.id;
-      const { room: next, wish } = addWish(room, req.body, actor);
-      const venues = await enrichWishVenues(wish, next.base_location);
-      next.wishlist = next.wishlist.map((w) => (w.id === wish.id ? { ...w, candidate_venues: venues } : w));
+      let { room: next, wish } = addWish(room, req.body, actor);
+      const pin = await pinFromWish(wish, next.base_location);
+      if (pin) {
+        wish = {
+          ...wish,
+          lat: pin.lat,
+          lng: pin.lng,
+          maps_url: wish.maps_url || pin.maps_url,
+          address: wish.address || pin.address,
+        };
+      }
+      const venues = pin ? [pin, ...(await enrichWishVenues(wish, next.base_location))] : await enrichWishVenues(wish, next.base_location);
+      const unique = [];
+      const seen = new Set();
+      for (const v of venues) {
+        const id = `${v.name}-${v.lat}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        unique.push(v);
+      }
+      wish = { ...wish, candidate_venues: unique.slice(0, 5) };
+      next.wishlist = next.wishlist.map((w) => (w.id === wish.id ? wish : w));
       await upsertRoom(next);
       res.status(201).json({ room: publicRoom(next), wish: { ...wish, candidate_venues: venues } });
     } catch (err) {
@@ -261,6 +283,50 @@ export function createApp() {
       };
       await upsertRoom(next);
       res.json({ room: publicRoom(next) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/rooms/:code/wishlist/:wid", async (req, res) => {
+    try {
+      const room = await requireRoom(req, res);
+      if (!room) return;
+      let updated = null;
+      let next = {
+        ...room,
+        wishlist: room.wishlist.map((w) => {
+          if (w.id !== req.params.wid) return w;
+          const maps_url =
+            req.body.maps_url !== undefined
+              ? req.body.maps_url || extractMapsUrl(req.body.maps_url || "")
+              : w.maps_url;
+          updated = {
+            ...w,
+            ...req.body,
+            id: w.id,
+            maps_url: maps_url || extractMapsUrl(`${req.body.title || w.title || ""} ${w.query || ""}`) || w.maps_url,
+          };
+          return updated;
+        }),
+      };
+      if (!updated) {
+        res.status(404).json({ error: "Wish not found." });
+        return;
+      }
+      const pin = await pinFromWish(updated, next.base_location);
+      if (pin) {
+        updated = {
+          ...updated,
+          lat: pin.lat,
+          lng: pin.lng,
+          maps_url: updated.maps_url || pin.maps_url,
+          address: updated.address || pin.address,
+        };
+        next = { ...next, wishlist: next.wishlist.map((w) => (w.id === updated.id ? updated : w)) };
+      }
+      await upsertRoom(next);
+      res.json({ room: publicRoom(next), wish: updated });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -324,11 +390,17 @@ export function createApp() {
       const { wishlist, matches } = attachMatches(room.wishlist || []);
       const wishlistWithVenues = [];
       for (const w of wishlist) {
-        const candidate_venues =
-          w.candidate_venues?.length && mapsEnabled() === false
-            ? w.candidate_venues
-            : await enrichWishVenues(w, base);
-        wishlistWithVenues.push({ ...w, candidate_venues });
+        const maps_url = w.maps_url || extractMapsUrl(`${w.title || ""} ${w.query || ""} ${w.address || ""}`);
+        const wish = { ...w, maps_url: maps_url || w.maps_url || null };
+        const candidate_venues = await enrichWishVenues(wish, base);
+        const pin = candidate_venues.find((v) => v.lat != null && v.lng != null);
+        wishlistWithVenues.push({
+          ...wish,
+          candidate_venues,
+          lat: wish.lat ?? pin?.lat ?? null,
+          lng: wish.lng ?? pin?.lng ?? null,
+          maps_url: wish.maps_url || pin?.maps_url || null,
+        });
       }
 
       const withVenues = { ...room, base_location: base, wishlist: wishlistWithVenues };
@@ -361,7 +433,18 @@ export function createApp() {
       }
       if (!result) result = scheduleItinerary(withVenues, options);
       const tz = withVenues.timezone || "Asia/Kuala_Lumpur";
+      result.events = await ensureEventCoords(result.events, withVenues);
       result.events = await attachTravelTimes(result.events, (iso) => isoDay(iso, tz));
+      const pinned = result.events.filter((e) => e.venue?.lat != null && e.venue?.lng != null).length;
+      if (result.summary) {
+        const lines = [...(result.summary.lines || [])].filter((l) => !/map pin/.test(l));
+        lines.push(
+          pinned
+            ? `${pinned} of ${result.events.length} stops pinned on the map.`
+            : "Map pins still missing — paste a Maps share link on each wish and optimize again.",
+        );
+        result.summary = { ...result.summary, lines };
+      }
 
       const next = {
         ...withVenues,

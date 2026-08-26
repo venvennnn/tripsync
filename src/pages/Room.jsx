@@ -324,6 +324,11 @@ export function Room() {
                 const res = await api.deleteWish(room.code, wid);
                 setRoom(res.room);
               }}
+              onAttachMaps={async (wid, maps_url) => {
+                const res = await api.patchWish(room.code, wid, { maps_url });
+                setRoom(res.room);
+                toast("Maps link saved", "Re-Optimize Trip to drop pins on the map.");
+              }}
             />
           </div>
           <section className="lg:col-span-3 card-paper rounded-3xl p-4 md:p-5">

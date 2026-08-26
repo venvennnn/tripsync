@@ -79,6 +79,12 @@ export const api = {
     fetch(`/api/rooms/${encodeURIComponent(code)}/wishlist/${wid}`, { method: "DELETE", headers: headers() }).then(
       parse,
     ),
+  patchWish: (code, wid, body) =>
+    fetch(`/api/rooms/${encodeURIComponent(code)}/wishlist/${wid}`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(parse),
   patchEvent: (code, eid, body) =>
     fetch(`/api/rooms/${encodeURIComponent(code)}/events/${eid}`, {
       method: "PATCH",

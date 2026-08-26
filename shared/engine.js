@@ -179,26 +179,38 @@ export function detectConflicts(room) {
 }
 
 function venueFor(wish, room) {
-  if (wish.venue) return wish.venue;
-  const candidate = wish.candidate_venues?.[0];
-  if (candidate?.name) {
+  if (wish.venue?.lat != null && wish.venue?.lng != null) return wish.venue;
+  const parsed = parseMapsCoords(wish.maps_url);
+  const ownLat = wish.lat ?? wish.venue?.lat ?? parsed?.lat ?? null;
+  const ownLng = wish.lng ?? wish.venue?.lng ?? parsed?.lng ?? null;
+  if (ownLat != null && ownLng != null) {
     return {
-      name: candidate.name,
+      name: wish.venue?.name || wish.title,
+      address: wish.address || wish.venue?.address || "",
+      maps_url: wish.maps_url || wish.venue?.maps_url || null,
+      lat: ownLat,
+      lng: ownLng,
+    };
+  }
+  const candidate =
+    (wish.candidate_venues || []).find((v) => v.lat != null && v.lng != null) || wish.candidate_venues?.[0];
+  if (candidate?.lat != null && candidate?.lng != null) {
+    return {
+      name: candidate.name || wish.title,
       address: candidate.address || "",
-      maps_url: candidate.maps_url || null,
-      lat: candidate.lat ?? null,
-      lng: candidate.lng ?? null,
+      maps_url: candidate.maps_url || wish.maps_url || null,
+      lat: candidate.lat,
+      lng: candidate.lng,
       vibe: candidate.vibe || "",
     };
   }
-  const parsed = parseMapsCoords(wish.maps_url);
-  if (wish.maps_url && (wish.address || parsed)) {
+  if (wish.maps_url) {
     return {
       name: wish.title,
       address: wish.address || "",
       maps_url: wish.maps_url,
-      lat: parsed?.lat ?? wish.lat ?? null,
-      lng: parsed?.lng ?? wish.lng ?? null,
+      lat: null,
+      lng: null,
     };
   }
   const found = venuesForWish(wish, room.base_location)[0];
