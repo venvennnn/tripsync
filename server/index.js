@@ -285,6 +285,10 @@ app.post("/api/rooms/:code/optimize", async (req, res) => {
   res.json({ room: publicRoom(next), optimization: next.last_optimization });
 });
 
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
 const dist = path.join(__dirname, "..", "dist");
 if (fs.existsSync(dist)) {
   app.use(express.static(dist));
