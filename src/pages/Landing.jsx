@@ -101,7 +101,7 @@ export function Landing() {
               <li>Wishlist cravings cluster into group matches.</li>
               <li>Hipster spots sit beside must-do meals.</li>
               <li>Google Maps measures real driving distance between stops.</li>
-              <li>Re-optimize without touching locked reservations.</li>
+              <li>Pin stops at 100%, then re-optimize around them.</li>
             </ul>
             <p className="text-xs text-mist">
               Trip data stays behind the login code. If you do not have the code, you cannot see the

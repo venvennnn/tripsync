@@ -13,6 +13,10 @@ import {
   enforceHardConstraints,
   moveEventToBlock,
   isoDay,
+  BLOCKS,
+  createSlotEvent,
+  distanceHint,
+  FAR_KM,
 } from "./engine.js";
 
 const venmani = {
@@ -379,5 +383,123 @@ describe("move and versions", () => {
     const wiped = { ...saved, events: [] };
     const out = restoreVersion(wiped, saved.versions[0].id);
     assert.equal(out.room.events.length, a.events.length);
+  });
+});
+
+describe("calendar slots, pins, and far hops", () => {
+  it("lists evening before dinner", () => {
+    const eve = BLOCKS.findIndex((b) => b.id === "evening");
+    const din = BLOCKS.findIndex((b) => b.id === "dinner");
+    assert.ok(eve >= 0 && din > eve);
+    assert.ok(BLOCKS[eve].start < BLOCKS[din].start);
+    assert.equal(BLOCKS[eve].start, "17:30");
+    assert.equal(BLOCKS[din].start, "19:30");
+  });
+
+  it("pins a stop into a clicked calendar slot", () => {
+    const made = createSlotEvent(baseRoom(), {
+      date: "2026-09-01",
+      block: "evening",
+      title: "Taman Tun walk",
+      maps_url: "https://maps.google.com/?q=3.1306,101.6728",
+      created_by: "p1",
+    });
+    assert.equal(made.error, undefined);
+    assert.equal(made.event.locked, true);
+    assert.equal(made.event.block, "evening");
+    assert.equal(made.event.title, "Taman Tun walk");
+    assert.equal(made.event.venue.lat, 3.1306);
+    assert.match(made.event.reason, /Re-Optimize will not move/i);
+  });
+
+  it("refuses a second stop in an occupied slot", () => {
+    const first = createSlotEvent(baseRoom(), {
+      date: "2026-09-01",
+      block: "dinner",
+      title: "Din Tai Fung",
+      created_by: "p1",
+    });
+    const room = { ...baseRoom(), events: [first.event] };
+    const second = createSlotEvent(room, {
+      date: "2026-09-01",
+      block: "dinner",
+      title: "Jalan Alor",
+      created_by: "p2",
+    });
+    assert.match(second.error, /already in that slot/i);
+  });
+
+  it("keeps pinned stops and reschedules the rest", () => {
+    const pin = createSlotEvent(baseRoom(), {
+      date: "2026-09-01",
+      block: "dinner",
+      title: "Reservation we cannot move",
+      created_by: "p2",
+    }).event;
+    const room = baseRoom({
+      events: [pin],
+      wishlist: [
+        ...baseRoom().wishlist,
+        {
+          id: pin.wishlist_id || "w_pin",
+          created_by: "p2",
+          title: pin.title,
+          type: "venue",
+          query: pin.title,
+          priority: "must_do",
+          participants_interested: ["p1", "p2", "p3"],
+        },
+      ],
+    });
+    const result = scheduleItinerary(room, { scope: "all" });
+    const kept = result.events.find((e) => e.id === pin.id);
+    assert.ok(kept);
+    assert.equal(kept.start, pin.start);
+    assert.equal(kept.block, "dinner");
+    assert.ok(result.events.length > 1);
+  });
+
+  it("flags a crosstown hop and suggests a nearer day", () => {
+    const bangsar = { name: "Bangsar Village", lat: 3.1306, lng: 101.6728 };
+    const caves = { name: "Batu Caves", lat: 3.2379, lng: 101.684 };
+    const room = baseRoom({
+      events: [
+        {
+          id: "e_bangsar",
+          title: "Bangsar lunch",
+          start: "2026-09-01T12:30:00+08:00",
+          end: "2026-09-01T14:00:00+08:00",
+          block: "lunch",
+          locked: false,
+          venue: bangsar,
+        },
+        {
+          id: "e_caves",
+          title: "Batu Caves",
+          start: "2026-09-03T10:00:00+08:00",
+          end: "2026-09-03T12:00:00+08:00",
+          block: "morning",
+          locked: false,
+          venue: caves,
+        },
+        {
+          id: "e_nearby",
+          title: "Temple snacks",
+          start: "2026-09-02T12:30:00+08:00",
+          end: "2026-09-02T14:00:00+08:00",
+          block: "lunch",
+          locked: false,
+          venue: { name: "Near caves", lat: 3.239, lng: 101.685 },
+        },
+      ],
+    });
+    const hint = distanceHint(room, room.events[1], "2026-09-01", "afternoon");
+    assert.equal(hint.far, true);
+    assert.ok(hint.km >= FAR_KM);
+    const moved = moveEventToBlock(room, "e_caves", "2026-09-01", "afternoon");
+    assert.equal(moved.error, undefined);
+    assert.equal(moved.hint.far, true);
+    assert.ok(moved.hint.alternatives.length >= 1);
+    assert.equal(moved.hint.alternatives[0].date, "2026-09-02");
   });
 });

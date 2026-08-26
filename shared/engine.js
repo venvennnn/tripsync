@@ -8,15 +8,16 @@ import {
   proximityBonus,
   venuesForWish,
   WALK_KM,
+  NEIGHBORHOOD_KM,
 } from "./places.js";
 
 export const BLOCKS = [
   { id: "breakfast", label: "Breakfast", start: "08:00", end: "09:30", meal: true, food: ["breakfast", "coffee", "cafe"] },
   { id: "morning", label: "Morning", start: "10:00", end: "12:00", meal: false, food: ["coffee", "cafe", "browse"] },
   { id: "lunch", label: "Lunch", start: "12:30", end: "14:00", meal: true, food: ["lunch"] },
-  { id: "afternoon", label: "Afternoon", start: "15:00", end: "17:30", meal: false, food: ["explore", "browse", "coffee"] },
-  { id: "dinner", label: "Dinner", start: "19:00", end: "21:00", meal: true, food: ["dinner"] },
-  { id: "evening", label: "Evening", start: "21:30", end: "23:00", meal: false, food: ["night", "speakeasy", "bar"] },
+  { id: "afternoon", label: "Afternoon", start: "15:00", end: "17:00", meal: false, food: ["explore", "browse", "coffee"] },
+  { id: "evening", label: "Evening", start: "17:30", end: "19:00", meal: false, food: ["walk", "browse", "night", "speakeasy", "bar"] },
+  { id: "dinner", label: "Dinner", start: "19:30", end: "21:30", meal: true, food: ["dinner"] },
 ];
 
 export const PRIORITY_RANK = {
@@ -571,7 +572,7 @@ function buildSummary(room, events, changes, matches, groupWindow) {
   );
   if (clusteredDays.size) lines.push(`Nearby stops were packed onto ${clusteredDays.size} day${clusteredDays.size === 1 ? "" : "s"}.`);
   const lockedCount = (room.events || []).filter((e) => e.locked).length;
-  if (lockedCount) lines.push(`Kept ${lockedCount} locked ${lockedCount === 1 ? "event" : "events"} untouched.`);
+  if (lockedCount) lines.push(`Kept ${lockedCount} pinned ${lockedCount === 1 ? "stop" : "stops"} in place.`);
   return {
     headline: placed ? "Trip optimized" : "No movable events yet",
     lines,
@@ -680,6 +681,94 @@ function travelBetween(prev, event) {
   };
 }
 
+export const FAR_KM = 8;
+
+export function eventVenue(event) {
+  if (event?.stops?.length) return event.stops[0];
+  return event?.venue || null;
+}
+
+export function distanceHint(room, event, date, blockId) {
+  const tz = room.timezone || "Asia/Kuala_Lumpur";
+  const venue = eventVenue(event);
+  const sameDay = (room.events || []).filter(
+    (e) => e.id !== event.id && e.start && isoDay(e.start, tz) === date,
+  );
+  const hops = [];
+  for (const n of sameDay) {
+    const km = haversineKm(venue, eventVenue(n));
+    if (km != null) hops.push({ title: n.title, km, block: n.block });
+  }
+  hops.sort((a, b) => b.km - a.km);
+  const worst = hops[0];
+  if (!worst || worst.km < FAR_KM) return { far: false, warning: null, alternatives: [] };
+
+  const span = tripSpan(room.participants || []);
+  const days = span ? eachDay(span.start, span.end, tz) : [];
+  const alternatives = [];
+  for (const day of days) {
+    const dayEvents = (room.events || []).filter((e) => e.id !== event.id && e.start && isoDay(e.start, tz) === day);
+    const venues = dayEvents.map(eventVenue).filter((v) => v?.lat != null);
+    if (!venues.length) continue;
+    const kms = venues.map((v) => haversineKm(venue, v)).filter((k) => k != null);
+    const minKm = kms.length ? Math.min(...kms) : Infinity;
+    if (!Number.isFinite(minKm) || minKm > NEIGHBORHOOD_KM) continue;
+    const free = BLOCKS.find((b) => {
+      if (day === date && b.id === blockId) return false;
+      const occ = dayEvents.find((e) => e.block === b.id);
+      return !occ || !occ.locked;
+    });
+    if (!free) continue;
+    alternatives.push({
+      date: day,
+      block: free.id,
+      km: minKm,
+      reason: `Nearer ${dayEvents[0].title} (${minKm.toFixed(1)} km)`,
+    });
+  }
+  alternatives.sort((a, b) => a.km - b.km);
+  return {
+    far: true,
+    km: worst.km,
+    warning: `${worst.km.toFixed(1)} km from “${worst.title}” that day — a crosstown hop.`,
+    alternatives: alternatives.slice(0, 2),
+  };
+}
+
+export function createSlotEvent(room, { date, block, title, maps_url, created_by, wish }) {
+  const tz = room.timezone || "Asia/Kuala_Lumpur";
+  const times = slotTimes(date, block, tz);
+  const occupant = (room.events || []).find((e) => e.block === times.block && isoDay(e.start, tz) === date);
+  if (occupant) return { error: `${occupant.title} is already in that slot.` };
+  const parsed = parseMapsCoords(maps_url);
+  const start = asDate(times.start);
+  const end = asDate(times.end);
+  const present = presentParticipants(room.participants || [], start, end);
+  const event = {
+    id: makeId("e"),
+    wishlist_id: wish?.id || null,
+    title: title || wish?.title || "Pinned stop",
+    venue: {
+      name: title || wish?.title || "Pinned stop",
+      address: wish?.address || "",
+      maps_url: maps_url || wish?.maps_url || null,
+      lat: parsed?.lat ?? wish?.lat ?? null,
+      lng: parsed?.lng ?? wish?.lng ?? null,
+    },
+    start: times.start,
+    end: times.end,
+    block: times.block,
+    participants: present.map((p) => p.id),
+    locked: true,
+    kind: "stop",
+    reason: `Pinned to ${BLOCKS.find((b) => b.id === block)?.label || block} — Re-Optimize will not move this.`,
+    created_by: created_by || wish?.created_by || null,
+    stops: [],
+    priority: "must_do",
+  };
+  return { event };
+}
+
 export function slotTimes(date, blockId, timeZone) {
   const block = BLOCKS.find((b) => b.id === blockId) || BLOCKS[2];
   return {
@@ -694,11 +783,11 @@ export function moveEventToBlock(room, eventId, date, blockId) {
   const times = slotTimes(date, blockId, tz);
   const target = (room.events || []).find((e) => e.id === eventId);
   if (!target) return { room, error: "Event not found." };
-  if (target.locked) return { room, error: "Unlock this stop before moving it." };
+  if (target.locked) return { room, error: "Unpin this stop before moving it." };
   const occupant = (room.events || []).find(
     (e) => e.id !== eventId && e.block === times.block && isoDay(e.start, tz) === date,
   );
-  if (occupant?.locked) return { room, error: `${occupant.title} is locked in that slot.` };
+  if (occupant?.locked) return { room, error: `${occupant.title} is pinned in that slot.` };
 
   let events = (room.events || []).map((e) => {
     if (e.id === eventId) return { ...e, ...times };
@@ -716,7 +805,9 @@ export function moveEventToBlock(room, eventId, date, blockId) {
     return { ...event, ...travelBetween(prev, event) };
   });
   const next = { ...room, events };
-  return { room: next, conflicts: detectConflicts(next), swapped: Boolean(occupant) };
+  const moved = next.events.find((e) => e.id === eventId);
+  const hint = moved ? distanceHint(next, moved, date, blockId) : { far: false };
+  return { room: next, conflicts: detectConflicts(next), swapped: Boolean(occupant), hint };
 }
 
 export function presenceByDay(room) {

@@ -17,6 +17,7 @@ import {
   interpretWish,
   isoDay,
   moveEventToBlock,
+  createSlotEvent,
 } from "../shared/engine.js";
 import { extractMapsUrl } from "../shared/places.js";
 import { pushVersion, restoreVersion, publicVersions } from "../shared/versions.js";
@@ -337,6 +338,80 @@ export function createApp() {
     }
   });
 
+  app.post("/api/rooms/:code/events", async (req, res) => {
+    try {
+      const room = await requireRoom(req, res);
+      if (!room) return;
+      const date = String(req.body.date || "").slice(0, 10);
+      const block = req.body.block;
+      const title = String(req.body.title || "").trim();
+      const maps_url = extractMapsUrl(req.body.maps_url) || req.body.maps_url || "";
+      if (!date || !block || !title) {
+        res.status(400).json({ error: "Date, time slot, and a place name are required." });
+        return;
+      }
+      const actor = req.body.created_by || room.participants[0]?.id;
+      let { room: next, wish } = addWish(
+        room,
+        {
+          title,
+          query: title,
+          type: maps_url ? "venue" : "natural",
+          maps_url,
+          priority: "must_do",
+          preferred_time: block,
+          created_by: actor,
+        },
+        actor,
+      );
+      wish = await pinWalkWish(wish, next.base_location);
+      const pin = await pinFromWish(wish, next.base_location);
+      if (pin) {
+        wish = {
+          ...wish,
+          lat: pin.lat,
+          lng: pin.lng,
+          maps_url: wish.maps_url || pin.maps_url,
+          address: wish.address || pin.address,
+        };
+      }
+      next.wishlist = next.wishlist.map((w) => (w.id === wish.id ? wish : w));
+      const made = createSlotEvent(next, {
+        date,
+        block,
+        title,
+        maps_url: wish.maps_url,
+        created_by: actor,
+        wish,
+      });
+      if (made.error) {
+        res.status(409).json({ error: made.error });
+        return;
+      }
+      let event = made.event;
+      if (pin) {
+        event = {
+          ...event,
+          venue: {
+            ...event.venue,
+            lat: pin.lat,
+            lng: pin.lng,
+            maps_url: wish.maps_url || pin.maps_url,
+            address: pin.address || event.venue.address,
+            name: pin.name || event.venue.name,
+          },
+        };
+      }
+      next = { ...next, events: [...(next.events || []), event] };
+      const tz = next.timezone || "Asia/Kuala_Lumpur";
+      next.events = await attachTravelTimes(next.events, (iso) => isoDay(iso, tz));
+      await upsertRoom(next);
+      res.status(201).json({ room: publicRoom(next), event, wish });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.patch("/api/rooms/:code/events/:eid", async (req, res) => {
     try {
       const room = await requireRoom(req, res);
@@ -383,7 +458,7 @@ export function createApp() {
       const tz = moved.room.timezone || "Asia/Kuala_Lumpur";
       moved.room.events = await attachTravelTimes(moved.room.events, (iso) => isoDay(iso, tz));
       await upsertRoom(moved.room);
-      res.json({ room: publicRoom(moved.room), conflicts: moved.conflicts, swapped: moved.swapped });
+      res.json({ room: publicRoom(moved.room), conflicts: moved.conflicts, swapped: moved.swapped, hint: moved.hint });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -443,6 +518,12 @@ export function createApp() {
       let working = room;
       if ((scope === "all" || scope === "unlocked") && (room.events || []).length) {
         working = pushVersion(room, { label: "Before optimize" });
+      }
+      if (req.body.unpin_all) {
+        working = {
+          ...working,
+          events: (working.events || []).map((e) => ({ ...e, locked: false })),
+        };
       }
       const options = {
         scope,

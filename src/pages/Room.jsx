@@ -44,10 +44,10 @@ export function Room() {
   const session = loadSession();
   const unlocked = session?.code?.toUpperCase() === String(code || "").toUpperCase();
 
-  function toast(title, body) {
+  function toast(title, body, extra = {}) {
     const id = Math.random().toString(36).slice(2);
-    setToasts((t) => [...t, { id, title, body }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5200);
+    setToasts((t) => [...t, { id, title, body, ...extra }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), extra.action ? 14000 : 5200);
   }
 
   useEffect(() => {
@@ -217,6 +217,7 @@ export function Room() {
               disabled={busy}
               onClick={() => optimize({ scope: "all" })}
               className="bg-gold text-white font-bold rounded-full px-4 py-2 text-sm inline-flex items-center gap-2 disabled:opacity-60"
+              title="Keeps pinned stops exactly where they are and rearranges everything else"
             >
               <span className={busy ? "optimize-spin inline-block" : ""}>✨</span>
               Re-Optimize Trip
@@ -359,6 +360,12 @@ export function Room() {
                 onLock={async (event) => {
                   const res = await api.patchEvent(room.code, event.id, { locked: !event.locked });
                   setRoom(res.room);
+                  toast(
+                    event.locked ? "Unpinned" : "Pinned",
+                    event.locked
+                      ? "Re-Optimize can move this stop now."
+                      : "Re-Optimize will keep this slot at 100%.",
+                  );
                 }}
                 onDelete={async (event) => {
                   const res = await api.deleteEvent(room.code, event.id);
@@ -369,6 +376,26 @@ export function Room() {
                   setRoom(res.room);
                   if (res.conflicts?.length) toast("Schedule conflict", res.conflicts[0].message);
                 }}
+                onAddSlot={async ({ date, block, title, maps_url }) => {
+                  if (!you) {
+                    setJoinOpen(true);
+                    toast("Join first", "Tap your name before pinning a stop.");
+                    return;
+                  }
+                  try {
+                    const res = await api.addEvent(room.code, {
+                      date,
+                      block,
+                      title,
+                      maps_url,
+                      created_by: you.id,
+                    });
+                    setRoom(res.room);
+                    toast("Pinned to this slot", "Re-Optimize will not move it. Unpin if you want it shuffled.");
+                  } catch (err) {
+                    toast("Could not add stop", err.message);
+                  }
+                }}
                 onMove={async (event, date, block) => {
                   try {
                     const res = await api.moveEvent(room.code, event.id, { date, block });
@@ -376,6 +403,28 @@ export function Room() {
                     if (res.swapped) toast("Swapped", "Those two slots traded places.");
                     else toast("Moved", `${event.title} is now ${block}.`);
                     if (res.conflicts?.length) toast("Schedule conflict", res.conflicts[0].message);
+                    if (res.hint?.far) {
+                      const alt = res.hint.alternatives?.[0];
+                      toast("That's a long hop", res.hint.warning, {
+                        action: alt
+                          ? {
+                              label: `Try ${alt.block} on ${alt.date} instead`,
+                              onClick: async () => {
+                                try {
+                                  const next = await api.moveEvent(room.code, event.id, {
+                                    date: alt.date,
+                                    block: alt.block,
+                                  });
+                                  setRoom(next.room);
+                                  toast("Moved closer", alt.reason);
+                                } catch (err) {
+                                  toast("Could not move closer", err.message);
+                                }
+                              },
+                            }
+                          : undefined,
+                      });
+                    }
                   } catch (err) {
                     toast("Move failed", err.message);
                   }
@@ -384,9 +433,28 @@ export function Room() {
                 onRegenerateDay={(date) => optimize({ scope: "day", date })}
               />
             )}
-            <div className="flex flex-wrap gap-2 mt-4">
-              <button type="button" className="text-xs rounded-full px-3 py-1 bg-stone-100" onClick={() => optimize({ scope: "unlocked" })}>
-                Regen unlocked
+            <div className="flex flex-wrap items-center gap-2 mt-4">
+              {(room.events || []).some((e) => e.locked) && (
+                <span className="text-xs text-gold font-semibold">
+                  Keeping {(room.events || []).filter((e) => e.locked).length} pinned{" "}
+                  {(room.events || []).filter((e) => e.locked).length === 1 ? "stop" : "stops"}
+                </span>
+              )}
+              <button
+                type="button"
+                className="text-xs rounded-full px-3 py-1 bg-stone-100"
+                onClick={() => optimize({ scope: "unlocked" })}
+                title="Pinned stops stay. Everything else is rearranged around them."
+              >
+                Rearrange unpinned only
+              </button>
+              <button
+                type="button"
+                className="text-xs rounded-full px-3 py-1 bg-stone-100"
+                onClick={() => optimize({ scope: "all", unpin_all: true })}
+                title="Clears every pin, then rebuilds the whole trip"
+              >
+                Unpin all & rearrange
               </button>
               <button
                 type="button"

@@ -91,6 +91,12 @@ export const api = {
       headers: headers(),
       body: JSON.stringify(body),
     }).then(parse),
+  addEvent: (code, body) =>
+    fetch(`/api/rooms/${encodeURIComponent(code)}/events`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(parse),
   deleteEvent: (code, eid) =>
     fetch(`/api/rooms/${encodeURIComponent(code)}/events/${eid}`, { method: "DELETE", headers: headers() }).then(parse),
   moveEvent: (code, eid, body) =>
