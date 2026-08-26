@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { HIPSTER_CATEGORIES, HIPSTER_CATALOG } from "../../shared/places.js";
 import { PRIORITY_LABEL } from "../lib/format.js";
-import { MascotSprite } from "./Mascot.jsx";
+import { Avatar } from "./Avatar.jsx";
 
 const inputCls =
-  "w-full rounded-xl bg-ink border border-paper/15 px-3 py-2 text-paper outline-none focus:border-gold";
+  "w-full rounded-xl bg-white border border-stone-300 px-3 py-2 text-ink outline-none focus:border-gold";
 
 const TYPES = [
   { id: "cuisine", label: "Craving" },
@@ -65,7 +65,7 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }
         <h3 className="font-display text-2xl">Wishlist</h3>
         <button
           type="button"
-          className="text-sm bg-gold text-ink font-bold rounded-full px-3 py-1"
+          className="text-sm bg-gold text-white font-bold rounded-full px-3 py-1"
           onClick={() => {
             if (!you) {
               onNeedYou?.();
@@ -83,7 +83,7 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }
           <button
             key={c.id}
             type="button"
-            className="text-[11px] rounded-full px-2 py-1 bg-paper/10 hover:bg-gold/20"
+            className="text-[11px] rounded-full px-2 py-1 bg-stone-100 hover:bg-gold/15"
             onClick={() => {
               if (!you) {
                 onNeedYou?.();
@@ -100,14 +100,14 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }
       </div>
 
       {open && (
-        <form onSubmit={submit} className="space-y-2 mb-4 rounded-2xl bg-ink/50 p-3">
+        <form onSubmit={submit} className="space-y-2 mb-4 rounded-2xl bg-stone-50 p-3">
           <div className="flex flex-wrap gap-1">
             {TYPES.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`text-xs rounded-full px-3 py-1 ${tab === t.id ? "bg-gold text-ink" : "bg-paper/10"}`}
+                className={`text-xs rounded-full px-3 py-1 ${tab === t.id ? "bg-gold text-white" : "bg-stone-100"}`}
               >
                 {t.label}
               </button>
@@ -187,7 +187,7 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }
               ))}
             </select>
           )}
-          <button className="w-full bg-paper text-ink rounded-full py-2 font-semibold text-sm">
+          <button className="w-full bg-ink text-white rounded-full py-2 font-semibold text-sm">
             Add to board
           </button>
         </form>
@@ -200,20 +200,20 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }
             .map((id) => room.participants.find((p) => p.id === id))
             .filter(Boolean);
           return (
-            <li key={w.id} className="rounded-2xl bg-ink/40 px-3 py-2">
+            <li key={w.id} className="rounded-2xl bg-stone-50 px-3 py-2">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-semibold leading-tight">{w.title}</div>
                   <div className="text-[11px] text-mist uppercase tracking-wide">
                     {w.type}
-                    {w.group_match ? " · SUPER EFFECTIVE" : ""} · {PRIORITY_LABEL[w.priority] || w.priority}
+                    {w.group_match ? " · group match" : ""} · {PRIORITY_LABEL[w.priority] || w.priority}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
                   {you && (
                     <button
                       type="button"
-                      className="text-sm px-2 py-1 rounded-full bg-paper/10"
+                      className="text-sm px-2 py-1 rounded-full bg-stone-100"
                       onClick={() => onHeart(w.id)}
                     >
                       ♥ {hearts.length}
@@ -229,7 +229,7 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou }
               <div className="flex gap-1 mt-1">
                 {people.map((p) => (
                   <span key={p.id} title={p.name}>
-                    <MascotSprite mascot={p.avatar} size={22} />
+                    <Avatar avatar={p.avatar} name={p.name} size={22} />
                   </span>
                 ))}
               </div>

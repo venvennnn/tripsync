@@ -1,16 +1,8 @@
 # TripSync
 
-**Everyone wants something. TripSync finds the moment.**
+Collaborative trip planner for small groups with mixed arrivals. Every trip has a login code. Data stays hidden until that code is entered.
 
-Collaborative trip planner for small groups with mixed arrivals, cravings, and a shared itinerary that respects who is actually around.
-
-## Room codes (login)
-
-Every trip **always** has a login code (`KL-FOOD-SQUAD-2026` style). The itinerary, wishlist, and traveler list stay hidden until someone enters that code. The URL alone is not enough.
-
-Sample trip (seeded on first server start): `KL-FOOD-SQUAD-2026`
-
-## Run
+## Run locally
 
 ```bash
 npm install
@@ -18,18 +10,37 @@ npm test
 npm run dev
 ```
 
-- Web: http://localhost:5173
-- API: http://localhost:3001
+## Persist trips (Supabase)
 
-Production:
+1. Create a Supabase project.
+2. Run `supabase/schema.sql` in the SQL editor.
+3. Set:
 
-```bash
-npm run build
-npm start
+```
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
-Optional: set `GEMINI_API_KEY` (or paste a key in the room footer) so Gemini can interpret vague wishes and propose schedules. JavaScript still enforces arrival windows and locked events.
+Without these, trips store in a local `data/rooms.json` file (fine for development, not for Vercel).
 
-## Stack
+## Google Maps distances
 
-Browser UI (React + Tailwind) → trip state (JSON file + local session) → deterministic engine (overlap, locks, conflicts) → optional Gemini reasoning → curated venue catalog (including hipster / independent spots).
+Enable **Geocoding API**, **Places API**, **Distance Matrix API**, and **Maps JavaScript API**. Set:
+
+```
+GOOGLE_MAPS_API_KEY=...
+```
+
+Re-Optimize then uses live place search and driving time between stops.
+
+## Deploy (Vercel)
+
+Connect the GitHub repo to Vercel, or:
+
+```bash
+npx vercel --prod
+```
+
+Add the same env vars in the Vercel project settings. Alternative: Render using `render.yaml`.
+
+Sample room (seeded): `KL-FOOD-SQUAD-2026`

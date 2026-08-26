@@ -41,6 +41,7 @@ async function parse(res) {
 
 export const api = {
   health: () => fetch("/api/health").then(parse),
+  config: () => fetch("/api/config").then(parse),
   createRoom: (body) =>
     fetch("/api/rooms", { method: "POST", headers: headers(), body: JSON.stringify(body) }).then(parse),
   getRoom: (code) => fetch(`/api/rooms/${encodeURIComponent(code)}`).then(parse),

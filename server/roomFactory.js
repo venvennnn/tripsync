@@ -1,4 +1,4 @@
-import { assignMascot } from "../shared/mascots.js";
+import { assignAvatar } from "../shared/avatars.js";
 import { generateRoomCode, normalizeCode } from "../shared/codes.js";
 import { makeId } from "../shared/ids.js";
 import { extractIntent } from "../shared/intent.js";
@@ -7,7 +7,7 @@ export const DEMO_CODE = "KL-FOOD-SQUAD-2026";
 
 export function createEmptyRoom({ tripName, timezone, baseLocation, owner, code }) {
   const roomCode = normalizeCode(code) || generateRoomCode(tripName);
-  const mascot = assignMascot(owner.name, roomCode);
+  const avatar = assignAvatar(owner.name, roomCode);
   const ownerId = makeId("p");
   return {
     id: makeId("room"),
@@ -27,7 +27,7 @@ export function createEmptyRoom({ tripName, timezone, baseLocation, owner, code 
       {
         id: ownerId,
         name: owner.name,
-        avatar: { id: mascot.id, name: mascot.name, emoji: mascot.emoji, color: mascot.color, type: mascot.type },
+        avatar,
         arrival: owner.arrival,
         departure: owner.departure,
         arrival_location: owner.arrival_location || "",
@@ -45,11 +45,11 @@ export function createEmptyRoom({ tripName, timezone, baseLocation, owner, code 
 
 export function addParticipant(room, profile) {
   const taken = room.participants.map((p) => p.avatar?.id);
-  const mascot = assignMascot(profile.name, room.code, taken);
+  const avatar = assignAvatar(profile.name, room.code, taken);
   const person = {
     id: makeId("p"),
     name: profile.name,
-    avatar: { id: mascot.id, name: mascot.name, emoji: mascot.emoji, color: mascot.color, type: mascot.type },
+    avatar,
     arrival: profile.arrival,
     departure: profile.departure,
     arrival_location: profile.arrival_location || "",

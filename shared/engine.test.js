@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { generateRoomCode, normalizeCode } from "./codes.js";
-import { assignMascot } from "./mascots.js";
+import { assignAvatar } from "./avatars.js";
 import { extractIntent, detectGroupMatches } from "./intent.js";
 import {
   participantPresent,
@@ -87,11 +87,12 @@ describe("room codes", () => {
   });
 });
 
-describe("mascots", () => {
+describe("avatars", () => {
   it("is deterministic for the same name + room", () => {
-    const a = assignMascot("Venmani", "KL-FOOD-SQUAD-2026");
-    const b = assignMascot("Venmani", "KL-FOOD-SQUAD-2026");
+    const a = assignAvatar("Venmani", "KL-FOOD-SQUAD-2026");
+    const b = assignAvatar("Venmani", "KL-FOOD-SQUAD-2026");
     assert.equal(a.id, b.id);
+    assert.ok(a.initials);
   });
 });
 
