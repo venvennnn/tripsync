@@ -93,6 +93,24 @@ export const api = {
     }).then(parse),
   deleteEvent: (code, eid) =>
     fetch(`/api/rooms/${encodeURIComponent(code)}/events/${eid}`, { method: "DELETE", headers: headers() }).then(parse),
+  moveEvent: (code, eid, body) =>
+    fetch(`/api/rooms/${encodeURIComponent(code)}/events/${eid}/move`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(parse),
+  saveVersion: (code, body) =>
+    fetch(`/api/rooms/${encodeURIComponent(code)}/versions`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(parse),
+  restoreVersion: (code, vid, body = {}) =>
+    fetch(`/api/rooms/${encodeURIComponent(code)}/versions/${vid}/restore`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    }).then(parse),
   optimize: (code, body) =>
     fetch(`/api/rooms/${encodeURIComponent(code)}/optimize`, {
       method: "POST",

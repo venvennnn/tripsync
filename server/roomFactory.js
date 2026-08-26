@@ -40,6 +40,7 @@ export function createEmptyRoom({ tripName, timezone, baseLocation, owner, code 
     ],
     wishlist: [],
     events: [],
+    versions: [],
     last_optimization: null,
   };
 }
@@ -69,26 +70,65 @@ export function addWish(room, payload, actorId) {
     payload.maps_url ||
     extractMapsUrl(`${payload.title || ""} ${payload.query || ""}`);
   const parsed = parseMapsCoords(maps_url);
+  const fromUrl = extractMapsUrl(payload.walk_from?.maps_url) || payload.walk_from?.maps_url || null;
+  const toUrl = extractMapsUrl(payload.walk_to?.maps_url) || payload.walk_to?.maps_url || null;
+  const walk_from = payload.walk_from
+    ? {
+        title: payload.walk_from.title || "",
+        maps_url: fromUrl,
+        lat: payload.walk_from.lat ?? parseMapsCoords(fromUrl)?.lat ?? null,
+        lng: payload.walk_from.lng ?? parseMapsCoords(fromUrl)?.lng ?? null,
+      }
+    : null;
+  const walk_to = payload.walk_to
+    ? {
+        title: payload.walk_to.title || "",
+        maps_url: toUrl,
+        lat: payload.walk_to.lat ?? parseMapsCoords(toUrl)?.lat ?? null,
+        lng: payload.walk_to.lng ?? parseMapsCoords(toUrl)?.lng ?? null,
+      }
+    : null;
+  const walk_via = (payload.walk_via || [])
+    .map((s) => {
+      const url = extractMapsUrl(s.maps_url) || s.maps_url || null;
+      const parsed = parseMapsCoords(url);
+      return {
+        title: s.title || "",
+        maps_url: url,
+        lat: s.lat ?? parsed?.lat ?? null,
+        lng: s.lng ?? parsed?.lng ?? null,
+      };
+    })
+    .filter((s) => s.title || s.maps_url);
+  const type = payload.type || intent.type;
+  const title =
+    payload.title ||
+    (type === "walk" && (walk_from?.title || walk_to?.title)
+      ? `Walk: ${walk_from?.title || "start"} → ${walk_to?.title || "end"}`
+      : intent.query);
   const wish = {
     id: makeId("w"),
     created_by: actorId,
-    title: payload.title || intent.query,
-    type: payload.type || intent.type,
-    query: payload.query || payload.title,
+    title,
+    type,
+    query: payload.query || payload.title || title,
     intent: intent.intent,
     priority: payload.priority || "would_love",
-    preferred_time: payload.preferred_time || "any",
+    preferred_time: payload.preferred_time || (type === "walk" ? "evening" : "any"),
     participants_interested: payload.participants_interested || [actorId],
     required_participants: payload.required_participants || [],
-    maps_url: maps_url || null,
+    maps_url: maps_url || walk_from?.maps_url || null,
     address: payload.address || "",
-    lat: payload.lat ?? parsed?.lat ?? null,
-    lng: payload.lng ?? parsed?.lng ?? null,
+    lat: payload.lat ?? parsed?.lat ?? walk_from?.lat ?? null,
+    lng: payload.lng ?? parsed?.lng ?? walk_from?.lng ?? null,
     hipster_category: payload.hipster_category || intent.hipster_category || null,
     clusters: intent.clusters || [],
     group_activity: intent.group_activity,
     candidate_venues: [],
     locked: false,
+    walk_from,
+    walk_to,
+    walk_via,
   };
   return { room: { ...room, wishlist: [...room.wishlist, wish] }, wish };
 }

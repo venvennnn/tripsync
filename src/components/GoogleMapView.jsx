@@ -47,18 +47,36 @@ function FallbackMap({ pinned }) {
   );
 }
 
-export function GoogleMapView({ events, wishlist, mapsKey }) {
-  const ref = useRef(null);
-  const [error, setError] = useState("");
-  const mapped = (events || []).filter((e) => e.venue?.lat != null && e.venue?.lng != null);
-  const fromWishes = (wishlist || [])
+function flattenPins(events, wishlist) {
+  const fromEvents = [];
+  for (const e of events || []) {
+    if (e.stops?.length) {
+      e.stops.forEach((s, i) => {
+        if (s.lat == null || s.lng == null) return;
+        fromEvents.push({
+          id: `${e.id}-${i}`,
+          title: s.name || e.title,
+          venue: { name: s.name || e.title, lat: s.lat, lng: s.lng, maps_url: s.maps_url },
+        });
+      });
+    } else if (e.venue?.lat != null && e.venue?.lng != null) {
+      fromEvents.push(e);
+    }
+  }
+  if (fromEvents.length) return fromEvents;
+  return (wishlist || [])
     .filter((w) => w.lat != null && w.lng != null)
     .map((w) => ({
       id: w.id,
       title: w.title,
       venue: { name: w.query || w.title, lat: w.lat, lng: w.lng, maps_url: w.maps_url },
     }));
-  const pinned = mapped.length ? mapped : fromWishes;
+}
+
+export function GoogleMapView({ events, wishlist, mapsKey }) {
+  const ref = useRef(null);
+  const [error, setError] = useState("");
+  const pinned = flattenPins(events, wishlist);
   const linked = (events || []).filter((e) => e.venue?.maps_url);
   const [useFallback, setUseFallback] = useState(!mapsKey);
 

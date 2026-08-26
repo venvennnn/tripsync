@@ -16,14 +16,17 @@ import {
   presenceByDay,
   interpretWish,
   isoDay,
+  moveEventToBlock,
 } from "../shared/engine.js";
 import { extractMapsUrl } from "../shared/places.js";
+import { pushVersion, restoreVersion, publicVersions } from "../shared/versions.js";
 import {
   mapsEnabled,
   enrichBaseLocation,
   enrichWishVenues,
   attachTravelTimes,
   pinFromWish,
+  pinWalkWish,
   ensureEventCoords,
 } from "./maps.js";
 import { geminiInterpret, geminiSchedule, getGeminiKey } from "./gemini.js";
@@ -41,6 +44,7 @@ function publicRoom(room) {
     matches,
     presence,
     conflicts: detectConflicts(room),
+    versions: publicVersions(room),
   };
 }
 
@@ -222,6 +226,7 @@ export function createApp() {
       if (!room) return;
       const actor = req.body.created_by || room.participants[0]?.id;
       let { room: next, wish } = addWish(room, req.body, actor);
+      wish = await pinWalkWish(wish, next.base_location);
       const pin = await pinFromWish(wish, next.base_location);
       if (pin) {
         wish = {
@@ -360,6 +365,62 @@ export function createApp() {
     }
   });
 
+  app.post("/api/rooms/:code/events/:eid/move", async (req, res) => {
+    try {
+      const room = await requireRoom(req, res);
+      if (!room) return;
+      const date = String(req.body.date || "").slice(0, 10);
+      const block = req.body.block;
+      if (!date || !block) {
+        res.status(400).json({ error: "date and block are required." });
+        return;
+      }
+      const moved = moveEventToBlock(room, req.params.eid, date, block);
+      if (moved.error) {
+        res.status(400).json({ error: moved.error });
+        return;
+      }
+      const tz = moved.room.timezone || "Asia/Kuala_Lumpur";
+      moved.room.events = await attachTravelTimes(moved.room.events, (iso) => isoDay(iso, tz));
+      await upsertRoom(moved.room);
+      res.json({ room: publicRoom(moved.room), conflicts: moved.conflicts, swapped: moved.swapped });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/rooms/:code/versions", async (req, res) => {
+    try {
+      const room = await requireRoom(req, res);
+      if (!room) return;
+      const next = pushVersion(room, {
+        label: req.body.label,
+        saved_by: req.body.saved_by || null,
+      });
+      await upsertRoom(next);
+      res.status(201).json({ room: publicRoom(next), versions: publicVersions(next) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/rooms/:code/versions/:vid/restore", async (req, res) => {
+    try {
+      const room = await requireRoom(req, res);
+      if (!room) return;
+      const safety = pushVersion(room, { label: "Before restore", saved_by: req.body.saved_by || null });
+      const restored = restoreVersion(safety, req.params.vid);
+      if (restored.error) {
+        res.status(404).json({ error: restored.error });
+        return;
+      }
+      await upsertRoom(restored.room);
+      res.json({ room: publicRoom(restored.room), restored: restored.restored.label });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/rooms/:code/interpret", async (req, res) => {
     const room = await requireRoom(req, res);
     if (!room) return;
@@ -379,6 +440,10 @@ export function createApp() {
       const room = await requireRoom(req, res);
       if (!room) return;
       const scope = req.body.scope || "all";
+      let working = room;
+      if ((scope === "all" || scope === "unlocked") && (room.events || []).length) {
+        working = pushVersion(room, { label: "Before optimize" });
+      }
       const options = {
         scope,
         date: req.body.date,
@@ -386,12 +451,12 @@ export function createApp() {
         block: req.body.block,
       };
 
-      const base = await enrichBaseLocation(room.base_location || {});
-      const { wishlist, matches } = attachMatches(room.wishlist || []);
+      const base = await enrichBaseLocation(working.base_location || {});
+      const { wishlist, matches } = attachMatches(working.wishlist || []);
       const wishlistWithVenues = [];
       for (const w of wishlist) {
         const maps_url = w.maps_url || extractMapsUrl(`${w.title || ""} ${w.query || ""} ${w.address || ""}`);
-        const wish = { ...w, maps_url: maps_url || w.maps_url || null };
+        let wish = await pinWalkWish({ ...w, maps_url: maps_url || w.maps_url || null }, base);
         const candidate_venues = await enrichWishVenues(wish, base);
         const pin = candidate_venues.find((v) => v.lat != null && v.lng != null);
         wishlistWithVenues.push({
@@ -403,7 +468,7 @@ export function createApp() {
         });
       }
 
-      const withVenues = { ...room, base_location: base, wishlist: wishlistWithVenues };
+      const withVenues = { ...working, base_location: base, wishlist: wishlistWithVenues };
 
       let result;
       const gemKey = getGeminiKey(req);

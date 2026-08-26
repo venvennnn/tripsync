@@ -9,6 +9,7 @@ const inputCls =
 const TYPES = [
   { id: "cuisine", label: "Craving" },
   { id: "venue", label: "Exact venue" },
+  { id: "walk", label: "Walking tour" },
   { id: "natural", label: "Vibe" },
   { id: "hipster", label: "Hipster" },
 ];
@@ -23,6 +24,11 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou, 
     priority: "would_love",
     preferred_time: "any",
     hipster_category: "third_wave",
+    walk_from_title: "",
+    walk_from_url: "",
+    walk_to_title: "",
+    walk_to_url: "",
+    walk_via: "",
   });
 
   function pickHipster(place) {
@@ -38,22 +44,41 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou, 
 
   async function submit(e) {
     e.preventDefault();
+    const via = form.walk_via
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [title, url] = line.split("|").map((s) => s.trim());
+        return { title: title || line, maps_url: url || (line.startsWith("http") ? line : "") };
+      });
     await onAdd({
-      title: form.title,
-      query: form.title,
+      title:
+        tab === "walk"
+          ? form.title || `Walk: ${form.walk_from_title || "start"} → ${form.walk_to_title || "end"}`
+          : form.title,
+      query: form.title || form.walk_from_title,
       type: tab,
-      maps_url: form.maps_url,
+      maps_url: tab === "walk" ? form.walk_from_url : form.maps_url,
       priority: form.priority,
-      preferred_time: form.preferred_time,
+      preferred_time: tab === "walk" && form.preferred_time === "any" ? "evening" : form.preferred_time,
       hipster_category: tab === "hipster" ? form.hipster_category : undefined,
       created_by: you?.id,
+      walk_from: tab === "walk" ? { title: form.walk_from_title, maps_url: form.walk_from_url } : undefined,
+      walk_to: tab === "walk" ? { title: form.walk_to_title, maps_url: form.walk_to_url } : undefined,
+      walk_via: tab === "walk" ? via : undefined,
     });
     setForm({
       title: "",
       maps_url: "",
       priority: "would_love",
-      preferred_time: "any",
+      preferred_time: tab === "walk" ? "evening" : "any",
       hipster_category: form.hipster_category,
+      walk_from_title: "",
+      walk_from_url: "",
+      walk_to_title: "",
+      walk_to_url: "",
+      walk_via: "",
     });
     setOpen(false);
   }
@@ -130,7 +155,7 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou, 
           )}
           <input
             className={inputCls}
-            required
+            required={tab !== "walk"}
             placeholder={
               tab === "hipster"
                 ? "Independent café, speakeasy, record shop…"
@@ -138,11 +163,51 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou, 
                   ? "Super Kitchen Chilli Pan Mee"
                   : tab === "natural"
                     ? "Somewhere chill to talk for a few hours"
-                    : "Japanese curry / banana leaf / mala"
+                    : tab === "walk"
+                      ? "Optional name (Evening Chinatown wander)"
+                      : "Japanese curry / banana leaf / mala"
             }
             value={form.title}
             onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
           />
+          {tab === "walk" && (
+            <div className="space-y-2 rounded-xl bg-white p-2 border border-stone-200">
+              <p className="text-[11px] text-mist">A walking session from one pin to another. Maps share links work.</p>
+              <input
+                className={inputCls}
+                required
+                placeholder="Start place (Petaling Street)"
+                value={form.walk_from_title}
+                onChange={(e) => setForm((f) => ({ ...f, walk_from_title: e.target.value }))}
+              />
+              <input
+                className={inputCls}
+                placeholder="Start Maps link"
+                value={form.walk_from_url}
+                onChange={(e) => setForm((f) => ({ ...f, walk_from_url: e.target.value }))}
+              />
+              <input
+                className={inputCls}
+                required
+                placeholder="End place (Zhongshan Building)"
+                value={form.walk_to_title}
+                onChange={(e) => setForm((f) => ({ ...f, walk_to_title: e.target.value }))}
+              />
+              <input
+                className={inputCls}
+                placeholder="End Maps link"
+                value={form.walk_to_url}
+                onChange={(e) => setForm((f) => ({ ...f, walk_to_url: e.target.value }))}
+              />
+              <textarea
+                className={inputCls}
+                rows={2}
+                placeholder="Optional extra stops, one per line: name | maps link"
+                value={form.walk_via}
+                onChange={(e) => setForm((f) => ({ ...f, walk_via: e.target.value }))}
+              />
+            </div>
+          )}
           {(tab === "venue" || tab === "hipster" || tab === "cuisine" || tab === "natural") && (
             <input
               className={inputCls}
@@ -207,8 +272,14 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou, 
                   <div className="font-semibold leading-tight">{w.title}</div>
                   <div className="text-[11px] text-mist uppercase tracking-wide">
                     {w.type}
+                    {w.type === "walk" ? " · walk" : ""}
                     {w.group_match ? " · group match" : ""} · {PRIORITY_LABEL[w.priority] || w.priority}
                   </div>
+                  {w.type === "walk" && (w.walk_from?.title || w.walk_to?.title) && (
+                    <div className="text-xs text-ink/80 mt-1">
+                      {w.walk_from?.title || "start"} → {w.walk_to?.title || "end"}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1">
                   {you && (
@@ -269,7 +340,7 @@ export function WishlistPanel({ room, you, onAdd, onHeart, onDelete, onNeedYou, 
           );
         })}
         {!room.wishlist?.length && (
-          <p className="text-sm text-mist">Add cravings, exact venues, vibes, or hipster hunts.</p>
+          <p className="text-sm text-mist">Add cravings, exact venues, walking tours, vibes, or hipster hunts.</p>
         )}
       </ul>
     </section>

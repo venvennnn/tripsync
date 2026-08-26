@@ -369,6 +369,17 @@ export function Room() {
                   setRoom(res.room);
                   if (res.conflicts?.length) toast("Schedule conflict", res.conflicts[0].message);
                 }}
+                onMove={async (event, date, block) => {
+                  try {
+                    const res = await api.moveEvent(room.code, event.id, { date, block });
+                    setRoom(res.room);
+                    if (res.swapped) toast("Swapped", "Those two slots traded places.");
+                    else toast("Moved", `${event.title} is now ${block}.`);
+                    if (res.conflicts?.length) toast("Schedule conflict", res.conflicts[0].message);
+                  } catch (err) {
+                    toast("Move failed", err.message);
+                  }
+                }}
                 onRegenerate={(event) => optimize({ scope: "event", event_id: event.id })}
                 onRegenerateDay={(date) => optimize({ scope: "day", date })}
               />
@@ -377,7 +388,45 @@ export function Room() {
               <button type="button" className="text-xs rounded-full px-3 py-1 bg-stone-100" onClick={() => optimize({ scope: "unlocked" })}>
                 Regen unlocked
               </button>
+              <button
+                type="button"
+                className="text-xs rounded-full px-3 py-1 bg-stone-100"
+                onClick={async () => {
+                  const label = `Plan ${new Date().toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`;
+                  const res = await api.saveVersion(room.code, { label, saved_by: you?.id });
+                  setRoom(res.room);
+                  toast("Plan saved", "You can reload this version anytime.");
+                }}
+              >
+                Save this plan
+              </button>
             </div>
+            {(room.versions || []).length > 0 && (
+              <div className="mt-3 rounded-2xl bg-stone-50 p-3 border border-stone-200">
+                <div className="text-xs font-semibold text-mist mb-2">Saved plans</div>
+                <ul className="space-y-1">
+                  {(room.versions || []).slice(0, 8).map((v) => (
+                    <li key={v.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span>
+                        {v.label}
+                        <span className="text-mist text-xs"> · {v.event_count} stops</span>
+                      </span>
+                      <button
+                        type="button"
+                        className="text-xs underline text-gold"
+                        onClick={async () => {
+                          const res = await api.restoreVersion(room.code, v.id, { saved_by: you?.id });
+                          setRoom(res.room);
+                          toast("Plan restored", res.restored || v.label);
+                        }}
+                      >
+                        Reload
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {room.last_optimization?.summary?.lines?.length > 0 && (
               <div className="mt-4 text-sm rounded-2xl bg-stone-50 p-3 border border-stone-200">
                 <div className="text-gold font-semibold">{room.last_optimization.summary.headline}</div>

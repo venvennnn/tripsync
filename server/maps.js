@@ -181,11 +181,57 @@ export async function pinFromWish(wish, base) {
   return null;
 }
 
+export async function pinStop(stop, base) {
+  if (!stop) return stop;
+  if (stop.lat != null && stop.lng != null) return stop;
+  const pin = await pinFromWish(
+    { title: stop.title || stop.name, query: stop.title || stop.name, maps_url: stop.maps_url, address: stop.address },
+    base,
+  );
+  if (!pin) return stop;
+  return {
+    ...stop,
+    name: stop.name || stop.title || pin.name,
+    title: stop.title || stop.name || pin.name,
+    lat: pin.lat,
+    lng: pin.lng,
+    maps_url: stop.maps_url || pin.maps_url,
+    address: stop.address || pin.address,
+  };
+}
+
+export async function pinWalkWish(wish, base) {
+  if (wish?.type !== "walk") return wish;
+  const walk_from = await pinStop(wish.walk_from, base);
+  const walk_to = await pinStop(wish.walk_to, base);
+  const walk_via = [];
+  for (const s of wish.walk_via || []) walk_via.push(await pinStop(s, base));
+  return {
+    ...wish,
+    walk_from,
+    walk_to,
+    walk_via,
+    lat: wish.lat ?? walk_from?.lat ?? null,
+    lng: wish.lng ?? walk_from?.lng ?? null,
+    maps_url: wish.maps_url || walk_from?.maps_url || null,
+  };
+}
+
 export async function ensureEventCoords(events, room) {
   const out = [];
   for (const event of events) {
-    if (event.venue?.lat != null && event.venue?.lng != null) {
-      out.push(event);
+    let nextEvent = event;
+    if (event.stops?.length) {
+      const stops = [];
+      for (const s of event.stops) stops.push(await pinStop(s, room.base_location));
+      nextEvent = {
+        ...event,
+        stops,
+        venue: event.venue?.lat != null ? event.venue : stops.find((s) => s.lat != null) || event.venue,
+      };
+    }
+    if (nextEvent.venue?.lat != null && nextEvent.venue?.lng != null) {
+      out.push(nextEvent);
       continue;
     }
     const wish = (room.wishlist || []).find((w) => w.id === event.wishlist_id);
@@ -204,28 +250,28 @@ export async function ensureEventCoords(events, room) {
       const catalog = wish ? venuesForWish(wish, room.base_location)[0] : null;
       if (catalog?.lat != null && catalog?.lng != null) {
         out.push({
-          ...event,
+          ...nextEvent,
           venue: {
-            ...(event.venue || {}),
-            name: event.venue?.name || catalog.name,
-            address: event.venue?.address || `${catalog.neighborhood}, ${catalog.city}`,
-            maps_url: event.venue?.maps_url || wish?.maps_url || catalog.maps_url,
+            ...(nextEvent.venue || {}),
+            name: nextEvent.venue?.name || catalog.name,
+            address: nextEvent.venue?.address || `${catalog.neighborhood}, ${catalog.city}`,
+            maps_url: nextEvent.venue?.maps_url || wish?.maps_url || catalog.maps_url,
             lat: catalog.lat,
             lng: catalog.lng,
           },
         });
         continue;
       }
-      out.push(event);
+      out.push(nextEvent);
       continue;
     }
     out.push({
-      ...event,
+      ...nextEvent,
       venue: {
-        ...(event.venue || {}),
-        name: event.venue?.name || pin.name,
-        address: event.venue?.address || pin.address,
-        maps_url: event.venue?.maps_url || pin.maps_url,
+        ...(nextEvent.venue || {}),
+        name: nextEvent.venue?.name || pin.name,
+        address: nextEvent.venue?.address || pin.address,
+        maps_url: nextEvent.venue?.maps_url || pin.maps_url,
         lat: pin.lat,
         lng: pin.lng,
       },
